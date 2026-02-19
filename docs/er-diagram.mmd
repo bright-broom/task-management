@@ -1,0 +1,158 @@
+---
+title: M2X課題 - 工場向けタスク管理システム ER図
+---
+erDiagram
+    %% ============================================================================
+    %% テナント（マルチテナントの基盤）
+    %% ============================================================================
+    tenants {
+        UUID id PK "主キー"
+        VARCHAR name "テナント名"
+        TIMESTAMP created_at "作成日時"
+        TIMESTAMP updated_at "更新日時"
+    }
+
+    %% ============================================================================
+    %% 設備マスタ（階層構造対応）
+    %% ============================================================================
+    equipments {
+        UUID id PK "主キー"
+        UUID tenant_id FK "テナントID"
+        UUID parent_equipment_id FK "親設備ID（自己参照）"
+        VARCHAR name "設備名"
+        VARCHAR manufacturer "製造元"
+        TEXT description "説明"
+        TIMESTAMP created_at "作成日時"
+        TIMESTAMP updated_at "更新日時"
+    }
+
+    %% ============================================================================
+    %% 部品マスタ
+    %% ============================================================================
+    parts {
+        UUID id PK "主キー"
+        UUID tenant_id FK "テナントID"
+        VARCHAR name "部品名"
+        VARCHAR part_number "部品番号"
+        VARCHAR location "保管場所"
+        TEXT description "説明"
+        INTEGER stock_quantity "在庫数"
+        INTEGER reorder_point "発注点"
+        TIMESTAMP created_at "作成日時"
+        TIMESTAMP updated_at "更新日時"
+    }
+
+    %% ============================================================================
+    %% 設備・部品 多対多関連
+    %% ============================================================================
+    equipment_parts {
+        UUID id PK "主キー"
+        UUID tenant_id FK "テナントID"
+        UUID equipment_id FK "設備ID"
+        UUID part_id FK "部品ID"
+        TIMESTAMP created_at "作成日時"
+    }
+
+    %% ============================================================================
+    %% タスク管理
+    %% ============================================================================
+    tasks {
+        UUID id PK "主キー"
+        UUID tenant_id FK "テナントID"
+        UUID equipment_id FK "設備ID"
+        VARCHAR title "タイトル"
+        TEXT description "説明"
+        ENUM status "ステータス（todo/in_progress/done）"
+        DATE due_date "期限日"
+        VARCHAR assigned_to "担当者"
+        TIMESTAMP created_at "作成日時"
+        TIMESTAMP updated_at "更新日時"
+    }
+
+    %% ============================================================================
+    %% タスク・部品関連（使用数量付き）
+    %% ============================================================================
+    task_parts {
+        UUID id PK "主キー"
+        UUID tenant_id FK "テナントID"
+        UUID task_id FK "タスクID"
+        UUID part_id FK "部品ID"
+        INTEGER quantity "使用数量"
+        TIMESTAMP created_at "作成日時"
+    }
+
+    %% ============================================================================
+    %% カスタムフィールド定義（EAVパターン - Attribute）
+    %% テナントごとに独自の入力項目を定義
+    %% ============================================================================
+    custom_field_definitions {
+        UUID id PK "主キー"
+        UUID tenant_id FK "テナントID"
+        VARCHAR field_name "フィールド名"
+        ENUM field_type "データ型（text/number/date/boolean/select）"
+        BOOLEAN is_required "必須フラグ"
+        INTEGER display_order "表示順"
+        JSONB options "選択肢（select型の場合）"
+        TIMESTAMP created_at "作成日時"
+        TIMESTAMP updated_at "更新日時"
+    }
+
+    %% ============================================================================
+    %% カスタムフィールド値（EAVパターン - Value）
+    %% 各タスクに対するカスタムフィールドの値を格納
+    %% ============================================================================
+    custom_field_values {
+        UUID id PK "主キー"
+        UUID tenant_id FK "テナントID"
+        UUID task_id FK "タスクID"
+        UUID field_definition_id FK "フィールド定義ID"
+        TEXT value "値"
+        TIMESTAMP created_at "作成日時"
+        TIMESTAMP updated_at "更新日時"
+    }
+
+    %% ============================================================================
+    %% タスクコメント【課題2: 追加機能】
+    %% 作業履歴・引き継ぎ事項を時系列で記録
+    %% ============================================================================
+    task_comments {
+        UUID id PK "主キー"
+        UUID tenant_id FK "テナントID"
+        UUID task_id FK "タスクID"
+        VARCHAR commented_by "投稿者名"
+        TEXT comment "コメント内容"
+        TIMESTAMP created_at "作成日時"
+        TIMESTAMP updated_at "更新日時"
+        TIMESTAMP deleted_at "削除日時（ソフトデリート）"
+    }
+
+    %% ============================================================================
+    %% リレーションシップ
+    %% ============================================================================
+
+    %% テナントとの関連（マルチテナント）
+    tenants ||--o{ equipments : "has"
+    tenants ||--o{ parts : "has"
+    tenants ||--o{ tasks : "has"
+    tenants ||--o{ custom_field_definitions : "defines"
+
+    %% 設備の階層構造（自己参照）
+    equipments ||--o{ equipments : "parent-child"
+
+    %% 設備・部品の多対多関連
+    equipments ||--o{ equipment_parts : "related to"
+    parts ||--o{ equipment_parts : "related to"
+
+    %% タスクと設備の関連
+    equipments ||--o{ tasks : "has"
+
+    %% タスクと部品の関連（使用部品）
+    tasks ||--o{ task_parts : "uses"
+    parts ||--o{ task_parts : "used in"
+
+    %% カスタムフィールド（EAVパターン）
+    tasks ||--o{ custom_field_values : "has values"
+    custom_field_definitions ||--o{ custom_field_values : "defines"
+
+    %% タスクコメント【課題2】
+    tasks ||--o{ task_comments : "has comments"

@@ -1,0 +1,575 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>M2X タスク管理システム</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .status-todo { background-color: #fef3c7; color: #92400e; }
+        .status-in_progress { background-color: #dbeafe; color: #1e40af; }
+        .status-done { background-color: #d1fae5; color: #065f46; }
+        .tab-active { border-bottom: 2px solid #3b82f6; color: #3b82f6; }
+        .skeleton { animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .5; } }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen">
+    <!-- Header -->
+    <header class="bg-white shadow">
+        <div class="max-w-7xl mx-auto px-4 py-4">
+            <div class="flex items-center justify-between">
+                <div>
+                    <h1 class="text-2xl font-bold text-gray-900">M2X タスク管理システム</h1>
+                    <p class="text-sm text-gray-500">工場向けタスク管理システム</p>
+                </div>
+                <div class="flex items-center gap-4">
+                    <label for="tenantSelect" class="text-sm text-gray-600">テナント:</label>
+                    <select id="tenantSelect" class="border rounded-lg px-3 py-2 bg-white shadow-sm" aria-label="テナント選択">
+                        <option value="">読み込み中...</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Navigation Tabs -->
+    <nav class="bg-white border-b" role="tablist" aria-label="メインナビゲーション">
+        <div class="max-w-7xl mx-auto px-4">
+            <div class="flex gap-8" id="tabButtons"></div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="max-w-7xl mx-auto px-4 py-6" id="mainContent"></main>
+
+    <!-- Error Toast -->
+    <div id="errorToast" class="fixed bottom-4 right-4 bg-red-500 text-white px-4 py-3 rounded-lg shadow-lg hidden" role="alert">
+        <span id="errorMessage"></span>
+    </div>
+
+    <script>
+    // ==========================================================================
+    // 設定・定数
+    // ==========================================================================
+    const CONFIG = {
+        api: {
+            tenants: '/api/tenants',
+            equipments: (tenantId) => `/api/tenants/${tenantId}/equipments`,
+            parts: (tenantId) => `/api/tenants/${tenantId}/parts`,
+            tasks: (tenantId) => `/api/tenants/${tenantId}/tasks`,
+            taskDetails: (taskId) => `/api/tasks/${taskId}/details`,
+            customFields: (tenantId) => `/api/tenants/${tenantId}/custom_fields`,
+            stats: (tenantId) => `/api/tenants/${tenantId}/stats`,
+        },
+        labels: {
+            status: { todo: '未着手', in_progress: '進行中', done: '完了' },
+            fieldType: { text: 'テキスト', number: '数値', date: '日付', boolean: '真偽値', select: '選択' },
+        },
+        styles: {
+            status: {
+                todo: { badge: 'status-todo', bg: 'bg-yellow-100 text-yellow-800' },
+                in_progress: { badge: 'status-in_progress', bg: 'bg-blue-100 text-blue-800' },
+                done: { badge: 'status-done', bg: 'bg-green-100 text-green-800' },
+            },
+            fieldType: {
+                text: 'bg-gray-100 text-gray-700',
+                number: 'bg-blue-100 text-blue-700',
+                date: 'bg-purple-100 text-purple-700',
+                boolean: 'bg-green-100 text-green-700',
+                select: 'bg-orange-100 text-orange-700',
+            },
+        },
+        tabs: [
+            { id: 'dashboard', label: 'ダッシュボード' },
+            { id: 'tasks', label: 'タスク' },
+            { id: 'equipments', label: '設備' },
+            { id: 'parts', label: '部品' },
+            { id: 'custom-fields', label: '独自入力項目' },
+        ],
+    };
+
+    // ==========================================================================
+    // 状態管理
+    // ==========================================================================
+    const state = {
+        currentTenant: null,
+        currentTab: 'dashboard',
+        loading: new Set(),
+    };
+
+    // ==========================================================================
+    // ユーティリティ関数
+    // ==========================================================================
+    const $ = (selector) => document.querySelector(selector);
+    const $$ = (selector) => document.querySelectorAll(selector);
+
+    const formatDate = (dateStr) => dateStr ? new Date(dateStr).toLocaleDateString('ja-JP') : '-';
+    const formatDateTime = (dateStr) => dateStr ? new Date(dateStr).toLocaleString('ja-JP') : '-';
+    const escapeHtml = (str) => str ? String(str).replace(/[&<>"']/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[s])) : '';
+
+    // ==========================================================================
+    // API通信
+    // ==========================================================================
+    async function fetchApi(url, loadingKey = null) {
+        if (loadingKey) state.loading.add(loadingKey);
+        try {
+            const res = await fetch(url);
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            return await res.json();
+        } catch (error) {
+            showError(`データ取得エラー: ${error.message}`);
+            throw error;
+        } finally {
+            if (loadingKey) state.loading.delete(loadingKey);
+        }
+    }
+
+    function showError(message) {
+        const toast = $('#errorToast');
+        $('#errorMessage').textContent = message;
+        toast.classList.remove('hidden');
+        setTimeout(() => toast.classList.add('hidden'), 5000);
+    }
+
+    // ==========================================================================
+    // UIコンポーネント
+    // ==========================================================================
+    const UI = {
+        // バッジコンポーネント
+        badge: (text, colorClass) => `<span class="px-2 py-1 rounded text-xs font-medium ${colorClass}">${escapeHtml(text)}</span>`,
+
+        // ステータスバッジ
+        statusBadge: (status, useAlt = false) => {
+            const style = CONFIG.styles.status[status] || {};
+            const label = CONFIG.labels.status[status] || status;
+            return UI.badge(label, useAlt ? style.bg : style.badge);
+        },
+
+        // フィールドタイプバッジ
+        fieldTypeBadge: (type) => {
+            const style = CONFIG.styles.fieldType[type] || '';
+            const label = CONFIG.labels.fieldType[type] || type;
+            return UI.badge(label, style);
+        },
+
+        // カード
+        card: (title, subtitle, content) => `
+            <div class="bg-white rounded-lg shadow">
+                <div class="p-4 border-b">
+                    <h2 class="font-semibold text-gray-900">${escapeHtml(title)}</h2>
+                    ${subtitle ? `<p class="text-sm text-gray-500">${escapeHtml(subtitle)}</p>` : ''}
+                </div>
+                <div class="p-4">${content}</div>
+            </div>
+        `,
+
+        // テーブル
+        table: (headers, bodyId) => `
+            <table class="w-full">
+                <thead class="bg-gray-50">
+                    <tr>${headers.map(h => `<th class="px-4 py-3 text-left text-xs font-medium text-gray-500">${escapeHtml(h)}</th>`).join('')}</tr>
+                </thead>
+                <tbody id="${bodyId}" class="divide-y"></tbody>
+            </table>
+        `,
+
+        // 空状態
+        empty: (message) => `<p class="text-gray-400 text-sm text-center py-4">${escapeHtml(message)}</p>`,
+
+        // ローディング
+        loading: () => `
+            <div class="space-y-3 p-4">
+                <div class="h-4 bg-gray-200 rounded skeleton w-3/4"></div>
+                <div class="h-4 bg-gray-200 rounded skeleton w-1/2"></div>
+                <div class="h-4 bg-gray-200 rounded skeleton w-2/3"></div>
+            </div>
+        `,
+
+        // セクションヘッダー（タグ付き）
+        sectionHeader: (title, tag = null) => `
+            <h4 class="font-medium text-gray-900 mb-3 flex items-center gap-2">
+                ${escapeHtml(title)}
+                ${tag ? `<span class="text-xs bg-${tag.color}-100 text-${tag.color}-700 px-2 py-0.5 rounded">${escapeHtml(tag.text)}</span>` : ''}
+            </h4>
+        `,
+
+        // 統計アイテム
+        statItem: (label, value, labelClass = '') => `
+            <div class="flex justify-between items-center">
+                <span class="${labelClass}">${label}</span>
+                <span class="font-semibold">${escapeHtml(String(value))}</span>
+            </div>
+        `,
+    };
+
+    // ==========================================================================
+    // テンプレート生成
+    // ==========================================================================
+    const Templates = {
+        // タブボタン
+        tabButtons: () => CONFIG.tabs.map(tab => `
+            <button
+                onclick="showTab('${tab.id}')"
+                class="tab-btn py-4 px-2 text-gray-600 hover:text-gray-900 ${state.currentTab === tab.id ? 'tab-active' : ''}"
+                data-tab="${tab.id}"
+                role="tab"
+                aria-selected="${state.currentTab === tab.id}"
+                aria-controls="tab-${tab.id}">
+                ${escapeHtml(tab.label)}
+            </button>
+        `).join(''),
+
+        // ダッシュボードタブ
+        dashboard: () => `
+            <div id="tab-dashboard" class="tab-content" role="tabpanel">
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <div class="bg-white rounded-lg shadow p-6">
+                        <h3 class="text-sm font-medium text-gray-500 mb-2">ステータス別タスク数</h3>
+                        <div id="tasksByStatus" class="space-y-2">${UI.loading()}</div>
+                    </div>
+                    <div class="bg-white rounded-lg shadow p-6">
+                        <h3 class="text-sm font-medium text-gray-500 mb-2">設備別タスク数</h3>
+                        <div id="tasksByEquipment" class="space-y-2 max-h-48 overflow-y-auto">${UI.loading()}</div>
+                    </div>
+                    <div class="bg-white rounded-lg shadow p-6">
+                        <h3 class="text-sm font-medium text-gray-500 mb-2">在庫不足の部品</h3>
+                        <div id="lowStockParts" class="space-y-2">${UI.loading()}</div>
+                    </div>
+                </div>
+            </div>
+        `,
+
+        // タスクタブ
+        tasks: () => `
+            <div id="tab-tasks" class="tab-content hidden" role="tabpanel">
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    <div class="lg:col-span-1 bg-white rounded-lg shadow">
+                        <div class="p-4 border-b"><h2 class="font-semibold text-gray-900">タスク一覧</h2></div>
+                        <div id="taskList" class="divide-y max-h-[600px] overflow-y-auto">${UI.loading()}</div>
+                    </div>
+                    <div class="lg:col-span-2 bg-white rounded-lg shadow">
+                        <div class="p-4 border-b"><h2 class="font-semibold text-gray-900">タスク詳細</h2></div>
+                        <div id="taskDetails" class="p-4">
+                            <p class="text-gray-500 text-center py-8">タスクを選択してください</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `,
+
+        // 設備タブ
+        equipments: () => `
+            <div id="tab-equipments" class="tab-content hidden" role="tabpanel">
+                <div class="bg-white rounded-lg shadow">
+                    <div class="p-4 border-b">
+                        <h2 class="font-semibold text-gray-900">設備一覧</h2>
+                        <p class="text-sm text-gray-500">親子階層構造で表示</p>
+                    </div>
+                    <div id="equipmentList" class="divide-y">${UI.loading()}</div>
+                </div>
+            </div>
+        `,
+
+        // 部品タブ
+        parts: () => `
+            <div id="tab-parts" class="tab-content hidden" role="tabpanel">
+                <div class="bg-white rounded-lg shadow overflow-hidden">
+                    <div class="p-4 border-b"><h2 class="font-semibold text-gray-900">部品一覧</h2></div>
+                    ${UI.table(['名前', '型番', '保管場所', '在庫数', '発注点', '状態', '関連設備'], 'partsList')}
+                </div>
+            </div>
+        `,
+
+        // 独自入力項目タブ
+        customFields: () => `
+            <div id="tab-custom-fields" class="tab-content hidden" role="tabpanel">
+                <div class="bg-white rounded-lg shadow">
+                    <div class="p-4 border-b">
+                        <h2 class="font-semibold text-gray-900">テナント独自入力項目</h2>
+                        <p class="text-sm text-gray-500">EAVパターンで実装されたカスタムフィールド定義</p>
+                    </div>
+                    ${UI.table(['項目名', 'データ型', '必須', '表示順', '選択肢'], 'customFieldsList')}
+                </div>
+            </div>
+        `,
+
+        // タスクリストアイテム
+        taskItem: (task) => `
+            <div class="p-4 hover:bg-gray-50 cursor-pointer" onclick="loadTaskDetails('${task.id}')" role="button" tabindex="0">
+                <div class="flex justify-between items-start mb-2">
+                    <h3 class="font-medium text-gray-900">${escapeHtml(task.title)}</h3>
+                    ${UI.statusBadge(task.status)}
+                </div>
+                <p class="text-sm text-gray-500">${escapeHtml(task.equipment_name)}</p>
+                ${task.assigned_to ? `<p class="text-xs text-gray-400 mt-1">担当: ${escapeHtml(task.assigned_to)}</p>` : ''}
+                ${task.due_date ? `<p class="text-xs text-gray-400">期日: ${formatDate(task.due_date)}</p>` : ''}
+            </div>
+        `,
+
+        // タスク詳細
+        taskDetails: (data) => {
+            const { task: t, custom_fields, parts, comments } = data;
+            return `
+                <div class="space-y-6">
+                    <!-- ヘッダー -->
+                    <div>
+                        <div class="flex items-center gap-3 mb-2">
+                            <h3 class="text-xl font-semibold text-gray-900">${escapeHtml(t.title)}</h3>
+                            ${UI.statusBadge(t.status)}
+                        </div>
+                        <p class="text-gray-600">${escapeHtml(t.description) || '説明なし'}</p>
+                    </div>
+
+                    <!-- 基本情報 -->
+                    <div class="grid grid-cols-2 gap-4 p-4 bg-gray-50 rounded-lg">
+                        <div><p class="text-xs text-gray-500">設備</p><p class="font-medium">${escapeHtml(t.equipment_name)}</p></div>
+                        <div><p class="text-xs text-gray-500">期日</p><p class="font-medium">${formatDate(t.due_date)}</p></div>
+                        <div><p class="text-xs text-gray-500">担当者</p><p class="font-medium">${escapeHtml(t.assigned_to) || '-'}</p></div>
+                        <div><p class="text-xs text-gray-500">ステータス</p><p class="font-medium">${CONFIG.labels.status[t.status] || t.status}</p></div>
+                    </div>
+
+                    <!-- テナント独自入力項目 (EAV) -->
+                    ${custom_fields.length > 0 ? `
+                        <div>
+                            ${UI.sectionHeader('テナント独自入力項目', { text: 'EAV', color: 'purple' })}
+                            <div class="space-y-2">
+                                ${custom_fields.map(cf => `
+                                    <div class="flex border-b pb-2">
+                                        <span class="text-sm text-gray-500 w-1/3">${escapeHtml(cf.field_name)}</span>
+                                        <span class="text-sm font-medium">${escapeHtml(cf.value) || '-'}</span>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        </div>
+                    ` : ''}
+
+                    <!-- 使用部品 -->
+                    ${parts.length > 0 ? `
+                        <div>
+                            ${UI.sectionHeader('使用部品')}
+                            <div class="space-y-2">
+                                ${parts.map(p => `
+                                    <div class="flex justify-between items-center p-2 bg-gray-50 rounded">
+                                        <div>
+                                            <span class="font-medium">${escapeHtml(p.name)}</span>
+                                            <span class="text-xs text-gray-500 ml-2">${escapeHtml(p.part_number) || ''}</span>
+                                        </div>
+                                        <span class="text-sm">数量: ${p.quantity}</span>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        </div>
+                    ` : ''}
+
+                    <!-- コメント (課題2) -->
+                    <div>
+                        ${UI.sectionHeader('コメント', { text: '課題2', color: 'blue' })}
+                        ${comments.length > 0 ? `
+                            <div class="space-y-3">
+                                ${comments.map(c => `
+                                    <div class="border-l-2 border-blue-300 pl-3 py-1">
+                                        <div class="flex justify-between items-center mb-1">
+                                            <span class="font-medium text-sm">${escapeHtml(c.commented_by)}</span>
+                                            <span class="text-xs text-gray-400">${formatDateTime(c.created_at)}</span>
+                                        </div>
+                                        <p class="text-sm text-gray-600">${escapeHtml(c.comment)}</p>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        ` : UI.empty('コメントなし')}
+                    </div>
+                </div>
+            `;
+        },
+
+        // 設備アイテム
+        equipmentItem: (e) => `
+            <div class="p-4 hover:bg-gray-50" style="padding-left: calc(1rem + ${e.depth * 1.5}rem)">
+                <div class="flex items-center gap-2">
+                    ${e.depth > 0 ? '<span class="text-gray-300">└</span>' : ''}
+                    <div class="flex-1">
+                        <div class="flex items-center justify-between">
+                            <h3 class="font-medium text-gray-900">${escapeHtml(e.name)}</h3>
+                            ${e.manufacturer ? `<span class="text-xs text-gray-400">製造元: ${escapeHtml(e.manufacturer)}</span>` : ''}
+                        </div>
+                        <p class="text-sm text-gray-500">${escapeHtml(e.description) || ''}</p>
+                    </div>
+                </div>
+            </div>
+        `,
+
+        // 部品行
+        partRow: (p) => {
+            const isLow = p.stock_quantity <= p.reorder_point;
+            return `
+                <tr class="hover:bg-gray-50">
+                    <td class="px-4 py-3">
+                        <div class="font-medium">${escapeHtml(p.name)}</div>
+                        <div class="text-xs text-gray-400">${escapeHtml(p.description) || ''}</div>
+                    </td>
+                    <td class="px-4 py-3 text-gray-500">${escapeHtml(p.part_number) || '-'}</td>
+                    <td class="px-4 py-3 text-gray-500">${escapeHtml(p.location) || '-'}</td>
+                    <td class="px-4 py-3 ${isLow ? 'text-red-600 font-semibold' : ''}">${p.stock_quantity}</td>
+                    <td class="px-4 py-3">${p.reorder_point}</td>
+                    <td class="px-4 py-3">
+                        ${UI.badge(isLow ? '要発注' : 'OK', isLow ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700')}
+                    </td>
+                    <td class="px-4 py-3 text-sm text-gray-500">${escapeHtml(p.related_equipments) || '-'}</td>
+                </tr>
+            `;
+        },
+
+        // カスタムフィールド行
+        customFieldRow: (f) => `
+            <tr class="hover:bg-gray-50">
+                <td class="px-4 py-3 font-medium">${escapeHtml(f.field_name)}</td>
+                <td class="px-4 py-3">${UI.fieldTypeBadge(f.field_type)}</td>
+                <td class="px-4 py-3">${f.is_required ? '<span class="text-red-500">必須</span>' : '-'}</td>
+                <td class="px-4 py-3">${f.display_order}</td>
+                <td class="px-4 py-3 text-sm text-gray-500">${f.options ? JSON.parse(f.options).join(', ') : '-'}</td>
+            </tr>
+        `,
+    };
+
+    // ==========================================================================
+    // データ読み込み関数
+    // ==========================================================================
+    async function loadTenants() {
+        try {
+            const tenants = await fetchApi(CONFIG.api.tenants, 'tenants');
+            const select = $('#tenantSelect');
+            select.innerHTML = tenants.map(t => `<option value="${t.id}">${escapeHtml(t.name)}</option>`).join('');
+
+            if (tenants.length > 0) {
+                state.currentTenant = tenants[0].id;
+                loadAllData();
+            }
+
+            select.addEventListener('change', (e) => {
+                state.currentTenant = e.target.value;
+                loadAllData();
+            });
+        } catch (e) {
+            $('#tenantSelect').innerHTML = '<option value="">エラー</option>';
+        }
+    }
+
+    function loadAllData() {
+        if (!state.currentTenant) return;
+        loadStats();
+        loadTasks();
+        loadEquipments();
+        loadParts();
+        loadCustomFields();
+    }
+
+    async function loadStats() {
+        try {
+            const stats = await fetchApi(CONFIG.api.stats(state.currentTenant), 'stats');
+
+            $('#tasksByStatus').innerHTML = stats.tasks_by_status.length > 0
+                ? stats.tasks_by_status.map(s => UI.statItem(UI.statusBadge(s.status, true), s.count)).join('')
+                : UI.empty('タスクなし');
+
+            $('#tasksByEquipment').innerHTML = stats.tasks_by_equipment.length > 0
+                ? stats.tasks_by_equipment.map(e => UI.statItem(`<span class="text-sm text-gray-600 truncate">${escapeHtml(e.name)}</span>`, e.count)).join('')
+                : UI.empty('設備なし');
+
+            $('#lowStockParts').innerHTML = stats.low_stock_parts.length > 0
+                ? stats.low_stock_parts.map(p => UI.statItem(`<span class="text-sm text-gray-600">${escapeHtml(p.name)}</span>`, `<span class="text-red-600">${p.stock_quantity}/${p.reorder_point}</span>`)).join('')
+                : '<p class="text-green-600 text-sm">在庫は十分です</p>';
+        } catch (e) { /* エラーはfetchApiで処理済み */ }
+    }
+
+    async function loadTasks() {
+        try {
+            const tasks = await fetchApi(CONFIG.api.tasks(state.currentTenant), 'tasks');
+            $('#taskList').innerHTML = tasks.length > 0
+                ? tasks.map(Templates.taskItem).join('')
+                : UI.empty('タスクなし');
+        } catch (e) {
+            $('#taskList').innerHTML = UI.empty('読み込みエラー');
+        }
+    }
+
+    async function loadTaskDetails(taskId) {
+        $('#taskDetails').innerHTML = UI.loading();
+        try {
+            const data = await fetchApi(CONFIG.api.taskDetails(taskId), 'taskDetails');
+            $('#taskDetails').innerHTML = Templates.taskDetails(data);
+        } catch (e) {
+            $('#taskDetails').innerHTML = UI.empty('読み込みエラー');
+        }
+    }
+
+    async function loadEquipments() {
+        try {
+            const equipments = await fetchApi(CONFIG.api.equipments(state.currentTenant), 'equipments');
+            $('#equipmentList').innerHTML = equipments.length > 0
+                ? equipments.map(Templates.equipmentItem).join('')
+                : UI.empty('設備なし');
+        } catch (e) {
+            $('#equipmentList').innerHTML = UI.empty('読み込みエラー');
+        }
+    }
+
+    async function loadParts() {
+        try {
+            const parts = await fetchApi(CONFIG.api.parts(state.currentTenant), 'parts');
+            $('#partsList').innerHTML = parts.length > 0
+                ? parts.map(Templates.partRow).join('')
+                : `<tr><td colspan="7" class="px-4 py-8 text-center text-gray-400">部品なし</td></tr>`;
+        } catch (e) {
+            $('#partsList').innerHTML = `<tr><td colspan="7" class="px-4 py-8 text-center text-gray-400">読み込みエラー</td></tr>`;
+        }
+    }
+
+    async function loadCustomFields() {
+        try {
+            const fields = await fetchApi(CONFIG.api.customFields(state.currentTenant), 'customFields');
+            $('#customFieldsList').innerHTML = fields.length > 0
+                ? fields.map(Templates.customFieldRow).join('')
+                : `<tr><td colspan="5" class="px-4 py-8 text-center text-gray-400">独自入力項目なし</td></tr>`;
+        } catch (e) {
+            $('#customFieldsList').innerHTML = `<tr><td colspan="5" class="px-4 py-8 text-center text-gray-400">読み込みエラー</td></tr>`;
+        }
+    }
+
+    // ==========================================================================
+    // タブ制御
+    // ==========================================================================
+    function showTab(tabName) {
+        state.currentTab = tabName;
+        $$('.tab-content').forEach(el => el.classList.add('hidden'));
+        $$('.tab-btn').forEach(el => {
+            el.classList.remove('tab-active');
+            el.setAttribute('aria-selected', 'false');
+        });
+        $(`#tab-${tabName}`)?.classList.remove('hidden');
+        const btn = $(`[data-tab="${tabName}"]`);
+        btn?.classList.add('tab-active');
+        btn?.setAttribute('aria-selected', 'true');
+    }
+
+    // ==========================================================================
+    // 初期化
+    // ==========================================================================
+    function initializeUI() {
+        $('#tabButtons').innerHTML = Templates.tabButtons();
+        $('#mainContent').innerHTML = `
+            ${Templates.dashboard()}
+            ${Templates.tasks()}
+            ${Templates.equipments()}
+            ${Templates.parts()}
+            ${Templates.customFields()}
+        `;
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+        initializeUI();
+        loadTenants();
+    });
+    </script>
+</body>
+</html>
