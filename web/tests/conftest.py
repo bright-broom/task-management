@@ -14,6 +14,9 @@ TEST_DATABASE_URL = os.environ.get(
     "postgresql://m2x_user:m2x_password@localhost:5432/m2x_task_management",
 )
 
+# Set DATABASE_URL for Flask app to use the test database
+os.environ["DATABASE_URL"] = TEST_DATABASE_URL
+
 # Test tenant ID (from seed data)
 TEST_TENANT_ID = "11111111-1111-1111-1111-111111111111"
 TEST_TENANT_ID_2 = "22222222-2222-2222-2222-222222222222"
