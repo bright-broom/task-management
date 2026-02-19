@@ -1,0 +1,39 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: m2x_task_db
+    environment:
+      POSTGRES_DB: m2x_task_management
+      POSTGRES_USER: m2x_user
+      POSTGRES_PASSWORD: m2x_password
+    ports:
+      - "5432:5432"
+    volumes:
+      # マイグレーションとシードデータの自動実行
+      - ./db/migrations/001_create_tables.sql:/docker-entrypoint-initdb.d/001_create_tables.sql:ro
+      - ./db/migrations/002_seed_data.sql:/docker-entrypoint-initdb.d/002_seed_data.sql:ro
+      # サンプルクエリ（手動実行用）
+      - ./db/queries/sample_queries.sql:/docker-entrypoint-initdb.d/sample_queries.sql:ro
+      # データ永続化
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U m2x_user -d m2x_task_management"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  web:
+    build: ./web
+    container_name: m2x_task_web
+    ports:
+      - "8080:5000"
+    environment:
+      DATABASE_URL: postgresql://m2x_user:m2x_password@db:5432/m2x_task_management
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./web:/app
+
+volumes:
+  postgres_data:
