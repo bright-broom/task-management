@@ -8,10 +8,11 @@ These tests verify:
 - EAV pattern implementation
 """
 
-import uuid
-
 import pytest
-from conftest import TEST_TENANT_ID, TEST_TENANT_ID_2
+
+# Test tenant IDs (from seed data)
+TEST_TENANT_ID = "11111111-1111-1111-1111-111111111111"
+TEST_TENANT_ID_2 = "22222222-2222-2222-2222-222222222222"
 
 
 class TestDatabaseSchema:
