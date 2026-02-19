@@ -20,7 +20,9 @@
       "Bash(black:*)",
       "Bash(isort:*)",
       "Bash(gh run view:*)",
-      "Bash(tree:*)"
+      "Bash(tree:*)",
+      "Bash(gh run list:*)",
+      "Bash(flake8:*)"
     ]
   }
 }

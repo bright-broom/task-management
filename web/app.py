@@ -355,7 +355,10 @@ def get_equipments(tenant_id: str) -> Response:
     with get_db_connection() as conn:
         with tenant_context(conn, tenant_id) as cur:
             # Get total count
-            cur.execute("SELECT COUNT(*) as count FROM equipments")
+            cur.execute(
+                "SELECT COUNT(*) as count FROM equipments WHERE tenant_id = %s",
+                (tenant_id,),
+            )
             total = cur.fetchone()["count"]
 
             # Get paginated results with hierarchy
@@ -364,17 +367,19 @@ def get_equipments(tenant_id: str) -> Response:
                 WITH RECURSIVE equipment_tree AS (
                     SELECT id, name, parent_equipment_id, manufacturer, description, 0 AS depth
                     FROM equipments
-                    WHERE parent_equipment_id IS NULL
+                    WHERE tenant_id = %s AND parent_equipment_id IS NULL
                     UNION ALL
-                    SELECT e.id, e.name, e.parent_equipment_id, e.manufacturer, e.description, et.depth + 1
+                    SELECT e.id, e.name, e.parent_equipment_id, e.manufacturer,
+                           e.description, et.depth + 1
                     FROM equipments e
                     JOIN equipment_tree et ON e.parent_equipment_id = et.id
+                    WHERE e.tenant_id = %s
                 )
                 SELECT * FROM equipment_tree
                 ORDER BY depth, name
                 LIMIT %s OFFSET %s
             """,
-                (pagination.per_page, pagination.offset),
+                (tenant_id, tenant_id, pagination.per_page, pagination.offset),
             )
             equipments = cur.fetchall()
 
@@ -413,13 +418,20 @@ def get_parts(tenant_id: str) -> Response:
 
     with get_db_connection() as conn:
         with tenant_context(conn, tenant_id) as cur:
-            # Build WHERE clause
-            where_clause = ""
+            # Build WHERE clause - always filter by tenant_id
+            conditions = ["p.tenant_id = %s"]
+            params: list[Any] = [tenant_id]
+
             if low_stock_only:
-                where_clause = "WHERE p.stock_quantity <= p.reorder_point"
+                conditions.append("p.stock_quantity <= p.reorder_point")
+
+            where_clause = "WHERE " + " AND ".join(conditions)
 
             # Get total count
-            cur.execute(f"SELECT COUNT(*) as count FROM parts p {where_clause}")
+            cur.execute(
+                f"SELECT COUNT(*) as count FROM parts p {where_clause}",
+                params,
+            )
             total = cur.fetchone()["count"]
 
             # Get paginated results
@@ -437,7 +449,7 @@ def get_parts(tenant_id: str) -> Response:
                 ORDER BY p.name
                 LIMIT %s OFFSET %s
             """,
-                (pagination.per_page, pagination.offset),
+                params + [pagination.per_page, pagination.offset],
             )
             parts = cur.fetchall()
 
@@ -478,9 +490,9 @@ def get_tasks(tenant_id: str) -> Response:
 
     with get_db_connection() as conn:
         with tenant_context(conn, tenant_id) as cur:
-            # Build WHERE clause
-            conditions = []
-            params: list[Any] = []
+            # Build WHERE clause - always filter by tenant_id
+            conditions = ["t.tenant_id = %s"]
+            params: list[Any] = [tenant_id]
 
             if status_filter and status_filter in ("todo", "in_progress", "done"):
                 conditions.append("t.status = %s")
@@ -490,9 +502,7 @@ def get_tasks(tenant_id: str) -> Response:
                 conditions.append("t.equipment_id = %s")
                 params.append(equipment_filter)
 
-            where_clause = ""
-            if conditions:
-                where_clause = "WHERE " + " AND ".join(conditions)
+            where_clause = "WHERE " + " AND ".join(conditions)
 
             # Get total count
             cur.execute(
@@ -629,10 +639,14 @@ def get_custom_field_definitions(tenant_id: str) -> Response:
     """
     with get_db_connection() as conn:
         with tenant_context(conn, tenant_id) as cur:
-            cur.execute("""
+            cur.execute(
+                """
                 SELECT * FROM custom_field_definitions
+                WHERE tenant_id = %s
                 ORDER BY display_order
-            """)
+            """,
+                (tenant_id,),
+            )
             fields = cur.fetchall()
     return jsonify(fields)
 
@@ -657,30 +671,41 @@ def get_stats(tenant_id: str) -> Response:
     with get_db_connection() as conn:
         with tenant_context(conn, tenant_id) as cur:
             # Tasks by status
-            cur.execute("""
+            cur.execute(
+                """
                 SELECT status, COUNT(*) as count
                 FROM tasks
+                WHERE tenant_id = %s
                 GROUP BY status
-            """)
+            """,
+                (tenant_id,),
+            )
             tasks_by_status = cur.fetchall()
 
             # Tasks by equipment
-            cur.execute("""
+            cur.execute(
+                """
                 SELECT e.name, COUNT(t.id) as count
                 FROM equipments e
                 LEFT JOIN tasks t ON e.id = t.equipment_id
+                WHERE e.tenant_id = %s
                 GROUP BY e.id, e.name
                 ORDER BY count DESC
-            """)
+            """,
+                (tenant_id,),
+            )
             tasks_by_equipment = cur.fetchall()
 
             # Parts low stock (at or below reorder point)
-            cur.execute("""
+            cur.execute(
+                """
                 SELECT name, part_number, stock_quantity, reorder_point
                 FROM parts
-                WHERE stock_quantity <= reorder_point
+                WHERE tenant_id = %s AND stock_quantity <= reorder_point
                 ORDER BY stock_quantity
-            """)
+            """,
+                (tenant_id,),
+            )
             low_stock_parts = cur.fetchall()
 
     return jsonify(
@@ -746,7 +771,8 @@ def create_task(tenant_id: str) -> tuple[Response, int]:
             # Create task
             cur.execute(
                 """
-                INSERT INTO tasks (tenant_id, equipment_id, title, description, status, due_date, assigned_to)
+                INSERT INTO tasks
+                    (tenant_id, equipment_id, title, description, status, due_date, assigned_to)
                 VALUES (%s, %s, %s, %s, %s, %s, %s)
                 RETURNING *
             """,

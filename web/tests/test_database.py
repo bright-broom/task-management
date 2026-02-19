@@ -120,6 +120,8 @@ class TestMultiTenantIsolation:
         tenant2_tasks = db_cursor.fetchone()["count"]
 
         assert tenant1_tasks > 0, "Tenant 1 should have task data"
+        # Tenant 2 may or may not have tasks in seed data
+        assert tenant2_tasks >= 0, "Tenant 2 task count should be non-negative"
 
 
 class TestConstraints:

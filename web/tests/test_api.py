@@ -11,7 +11,6 @@ These tests verify:
 """
 
 import json
-import uuid
 
 import pytest
 
