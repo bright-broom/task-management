@@ -327,6 +327,9 @@ Assembly Line A          (parent_equipment_id = NULL)
 .
 ├── README.md                          # 本ドキュメント
 ├── docker-compose.yml                 # Docker Compose 設定
+├── .github/
+│   └── workflows/
+│       └── ci.yml                     # GitHub Actions CI/CD
 ├── db/
 │   ├── migrations/
 │   │   ├── 001_create_tables.sql      # テーブル定義（課題1 + 課題2）
@@ -337,11 +340,75 @@ Assembly Line A          (parent_equipment_id = NULL)
 │   ├── Dockerfile
 │   ├── app.py                         # APIサーバー
 │   ├── requirements.txt
-│   └── templates/
-│       └── index.html                 # フロントエンド
+│   ├── requirements-dev.txt           # 開発用依存関係
+│   └── tests/                         # テストコード
+│       ├── conftest.py                # pytest設定・フィクスチャ
+│       ├── test_database.py           # DB・スキーマテスト
+│       └── test_api.py                # APIエンドポイントテスト
 └── docs/
-    └── er-diagram.mmd                 # ER図（Mermaid形式）
+    ├── er-diagram.mmd                 # ER図（Mermaid形式）
+    └── openapi.yaml                   # API仕様書（OpenAPI 3.0）
 ```
+
+---
+
+## 品質管理
+
+### テスト
+
+pytest を使用したテストスイートを実装しています。
+
+```bash
+# 開発用依存関係のインストール
+pip install -r web/requirements-dev.txt
+
+# テスト実行
+cd web && pytest tests/ -v
+
+# カバレッジ付きテスト実行
+cd web && pytest tests/ -v --cov=. --cov-report=term-missing
+```
+
+**テストカテゴリ:**
+
+| カテゴリ | ファイル | 内容 |
+|----------|----------|------|
+| DBスキーマ | `test_database.py` | テーブル構造、制約、マルチテナント分離 |
+| API | `test_api.py` | エンドポイント、レスポンス形式、エラーハンドリング |
+| EAV | `test_database.py` | カスタムフィールド定義・値の整合性 |
+
+### CI/CD
+
+GitHub Actions で以下を自動実行しています（`.github/workflows/ci.yml`）:
+
+| ジョブ | 内容 |
+|--------|------|
+| **lint** | Black, isort, flake8 によるコードフォーマット・静的解析 |
+| **test** | pytest によるユニットテスト（PostgreSQL連携） |
+| **docker-build** | Docker イメージビルド・ヘルスチェック |
+| **security** | Bandit, Safety によるセキュリティスキャン |
+| **openapi-validation** | OpenAPI 仕様書の妥当性検証 |
+
+### API仕様書
+
+OpenAPI 3.0 形式の仕様書を提供しています: [`docs/openapi.yaml`](docs/openapi.yaml)
+
+Swagger UI などで閲覧可能です:
+```bash
+# Swagger UI で閲覧（Docker使用）
+docker run -p 8081:8080 -e SWAGGER_JSON=/docs/openapi.yaml -v $(pwd)/docs:/docs swaggerapi/swagger-ui
+```
+
+### コード品質
+
+| 項目 | 対応状況 |
+|------|----------|
+| 入力バリデーション | UUID形式チェック、エラーレスポンス |
+| エラーハンドリング | 404/500/DB エラーハンドラー実装 |
+| ログ出力 | Python logging モジュール使用 |
+| DB接続管理 | コンテキストマネージャで漏れ防止 |
+| XSS対策 | フロントエンドで `escapeHtml()` 実装 |
+| SQLインジェクション対策 | パラメータ化クエリ使用 |
 
 ---
 

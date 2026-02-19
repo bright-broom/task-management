@@ -1,0 +1,495 @@
+openapi: 3.0.3
+info:
+  title: M2X Task Management API
+  description: |
+    工場向けタスク管理システムのREST API仕様書。
+
+    ## 主な機能
+    - マルチテナント対応（tenant_idによるデータ分離）
+    - 設備管理（階層構造対応）
+    - 部品管理（在庫・発注点管理）
+    - タスク管理（カスタムフィールド・コメント対応）
+
+    ## 認証
+    現在のバージョンでは認証は実装されていません。
+    プロダクション環境では適切な認証機構の追加が必要です。
+  version: 1.0.0
+  contact:
+    name: M2X Task Management
+  license:
+    name: MIT
+
+servers:
+  - url: http://localhost:8080
+    description: Development server
+
+tags:
+  - name: Tenants
+    description: テナント管理
+  - name: Equipments
+    description: 設備管理
+  - name: Parts
+    description: 部品管理
+  - name: Tasks
+    description: タスク管理
+  - name: Custom Fields
+    description: カスタムフィールド定義（EAVパターン）
+  - name: Statistics
+    description: 統計情報
+
+paths:
+  /api/tenants:
+    get:
+      tags:
+        - Tenants
+      summary: テナント一覧取得
+      description: 登録されている全テナントの一覧を取得します。
+      operationId: getTenants
+      responses:
+        '200':
+          description: テナント一覧
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Tenant'
+              example:
+                - id: "11111111-1111-1111-1111-111111111111"
+                  name: "Tanaka Manufacturing Co., Ltd."
+                  created_at: "2024-01-01T00:00:00+09:00"
+                  updated_at: "2024-01-01T00:00:00+09:00"
+
+  /api/tenants/{tenant_id}/equipments:
+    get:
+      tags:
+        - Equipments
+      summary: 設備一覧取得
+      description: |
+        指定テナントの設備一覧を階層構造付きで取得します。
+        depth=0はトップレベル設備、depth>0は子設備を示します。
+      operationId: getEquipments
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+      responses:
+        '200':
+          description: 設備一覧（階層構造付き）
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Equipment'
+
+  /api/tenants/{tenant_id}/parts:
+    get:
+      tags:
+        - Parts
+      summary: 部品一覧取得
+      description: 指定テナントの部品一覧を関連設備情報付きで取得します。
+      operationId: getParts
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+      responses:
+        '200':
+          description: 部品一覧
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Part'
+
+  /api/tenants/{tenant_id}/tasks:
+    get:
+      tags:
+        - Tasks
+      summary: タスク一覧取得
+      description: 指定テナントのタスク一覧を作成日時降順で取得します。
+      operationId: getTasks
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+      responses:
+        '200':
+          description: タスク一覧
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TaskSummary'
+
+  /api/tasks/{task_id}/details:
+    get:
+      tags:
+        - Tasks
+      summary: タスク詳細取得
+      description: |
+        タスクの詳細情報を取得します。以下の情報が含まれます：
+        - 基本情報（タイトル、ステータス、設備、期日など）
+        - カスタムフィールド値（EAVパターン）
+        - 使用部品一覧
+        - コメント一覧（課題2）
+      operationId: getTaskDetails
+      parameters:
+        - name: task_id
+          in: path
+          required: true
+          description: タスクID（UUID）
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: タスク詳細
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskDetails'
+
+  /api/tenants/{tenant_id}/custom_fields:
+    get:
+      tags:
+        - Custom Fields
+      summary: カスタムフィールド定義一覧取得
+      description: |
+        指定テナントのカスタムフィールド定義を取得します。
+        EAVパターンにおけるAttribute部分に相当します。
+      operationId: getCustomFieldDefinitions
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+      responses:
+        '200':
+          description: カスタムフィールド定義一覧
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CustomFieldDefinition'
+
+  /api/tenants/{tenant_id}/stats:
+    get:
+      tags:
+        - Statistics
+      summary: 統計情報取得
+      description: |
+        指定テナントの統計情報を取得します。
+        ダッシュボード表示用のサマリーデータです。
+      operationId: getStats
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+      responses:
+        '200':
+          description: 統計情報
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Stats'
+
+components:
+  parameters:
+    TenantId:
+      name: tenant_id
+      in: path
+      required: true
+      description: テナントID（UUID）
+      schema:
+        type: string
+        format: uuid
+
+  schemas:
+    Tenant:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: テナントID
+        name:
+          type: string
+          description: テナント名
+        created_at:
+          type: string
+          format: date-time
+          description: 作成日時
+        updated_at:
+          type: string
+          format: date-time
+          description: 更新日時
+      required:
+        - id
+        - name
+
+    Equipment:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: 設備ID
+        name:
+          type: string
+          description: 設備名
+        parent_equipment_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: 親設備ID（NULLの場合はトップレベル）
+        manufacturer:
+          type: string
+          nullable: true
+          description: 製造元
+        description:
+          type: string
+          nullable: true
+          description: 説明
+        depth:
+          type: integer
+          description: 階層の深さ（0=トップレベル）
+      required:
+        - id
+        - name
+        - depth
+
+    Part:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: 部品ID
+        name:
+          type: string
+          description: 部品名
+        part_number:
+          type: string
+          nullable: true
+          description: 型番
+        location:
+          type: string
+          nullable: true
+          description: 保管場所
+        description:
+          type: string
+          nullable: true
+          description: 説明
+        stock_quantity:
+          type: integer
+          description: 在庫数
+        reorder_point:
+          type: integer
+          description: 発注点
+        related_equipments:
+          type: string
+          nullable: true
+          description: 関連設備名（カンマ区切り）
+      required:
+        - id
+        - name
+        - stock_quantity
+        - reorder_point
+
+    TaskSummary:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: タスクID
+        title:
+          type: string
+          description: タスク名
+        description:
+          type: string
+          nullable: true
+          description: 説明
+        status:
+          $ref: '#/components/schemas/TaskStatus'
+        due_date:
+          type: string
+          format: date
+          nullable: true
+          description: 期日
+        assigned_to:
+          type: string
+          nullable: true
+          description: 担当者
+        equipment_name:
+          type: string
+          description: 設備名
+        created_at:
+          type: string
+          format: date-time
+          description: 作成日時
+      required:
+        - id
+        - title
+        - status
+        - equipment_name
+
+    TaskDetails:
+      type: object
+      properties:
+        task:
+          $ref: '#/components/schemas/TaskSummary'
+        custom_fields:
+          type: array
+          description: カスタムフィールド値（EAVパターン）
+          items:
+            $ref: '#/components/schemas/CustomFieldValue'
+        parts:
+          type: array
+          description: 使用部品一覧
+          items:
+            $ref: '#/components/schemas/TaskPart'
+        comments:
+          type: array
+          description: コメント一覧（課題2）
+          items:
+            $ref: '#/components/schemas/TaskComment'
+      required:
+        - task
+        - custom_fields
+        - parts
+        - comments
+
+    TaskStatus:
+      type: string
+      enum:
+        - todo
+        - in_progress
+        - done
+      description: |
+        タスクステータス
+        - todo: 未着手
+        - in_progress: 進行中
+        - done: 完了
+
+    CustomFieldDefinition:
+      type: object
+      description: カスタムフィールド定義（EAVパターンのAttribute）
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: フィールドID
+        field_name:
+          type: string
+          description: フィールド名
+        field_type:
+          type: string
+          enum:
+            - text
+            - number
+            - date
+            - boolean
+            - select
+          description: データ型
+        is_required:
+          type: boolean
+          description: 必須フラグ
+        display_order:
+          type: integer
+          description: 表示順
+        options:
+          type: string
+          nullable: true
+          description: 選択肢（JSON配列形式、select型の場合のみ）
+      required:
+        - id
+        - field_name
+        - field_type
+        - is_required
+        - display_order
+
+    CustomFieldValue:
+      type: object
+      description: カスタムフィールド値（EAVパターンのValue）
+      properties:
+        field_name:
+          type: string
+          description: フィールド名
+        field_type:
+          type: string
+          description: データ型
+        value:
+          type: string
+          nullable: true
+          description: 値
+
+    TaskPart:
+      type: object
+      description: タスクで使用する部品
+      properties:
+        name:
+          type: string
+          description: 部品名
+        part_number:
+          type: string
+          nullable: true
+          description: 型番
+        quantity:
+          type: integer
+          description: 使用数量
+      required:
+        - name
+        - quantity
+
+    TaskComment:
+      type: object
+      description: タスクコメント（課題2）
+      properties:
+        commented_by:
+          type: string
+          description: 投稿者名
+        comment:
+          type: string
+          description: コメント内容
+        created_at:
+          type: string
+          format: date-time
+          description: 投稿日時
+      required:
+        - commented_by
+        - comment
+        - created_at
+
+    Stats:
+      type: object
+      description: 統計情報
+      properties:
+        tasks_by_status:
+          type: array
+          description: ステータス別タスク数
+          items:
+            type: object
+            properties:
+              status:
+                $ref: '#/components/schemas/TaskStatus'
+              count:
+                type: integer
+        tasks_by_equipment:
+          type: array
+          description: 設備別タスク数
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+              count:
+                type: integer
+        low_stock_parts:
+          type: array
+          description: 在庫不足の部品
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+              part_number:
+                type: string
+              stock_quantity:
+                type: integer
+              reorder_point:
+                type: integer
