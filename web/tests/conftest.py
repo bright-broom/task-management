@@ -61,9 +61,7 @@ def client(app):
 @pytest.fixture
 def sample_task_id(db_cursor):
     """Get a sample task ID from the database."""
-    db_cursor.execute(
-        "SELECT id FROM tasks WHERE tenant_id = %s LIMIT 1", (TEST_TENANT_ID,)
-    )
+    db_cursor.execute("SELECT id FROM tasks WHERE tenant_id = %s LIMIT 1", (TEST_TENANT_ID,))
     result = db_cursor.fetchone()
     return str(result["id"]) if result else None
 
@@ -71,8 +69,6 @@ def sample_task_id(db_cursor):
 @pytest.fixture
 def sample_equipment_id(db_cursor):
     """Get a sample equipment ID from the database."""
-    db_cursor.execute(
-        "SELECT id FROM equipments WHERE tenant_id = %s LIMIT 1", (TEST_TENANT_ID,)
-    )
+    db_cursor.execute("SELECT id FROM equipments WHERE tenant_id = %s LIMIT 1", (TEST_TENANT_ID,))
     result = db_cursor.fetchone()
     return str(result["id"]) if result else None

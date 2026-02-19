@@ -8,7 +8,7 @@ on:
 
 jobs:
   test:
-    name: Build & Test
+    name: Test & Coverage
     runs-on: ubuntu-latest
 
     services:
@@ -33,12 +33,13 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+          cache: 'pip'
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r web/requirements.txt
-          pip install pytest
+          pip install pytest pytest-cov
 
       - name: Run database migrations
         env:
@@ -50,11 +51,46 @@ jobs:
           psql -f db/migrations/001_create_tables.sql
           psql -f db/migrations/002_seed_data.sql
 
-      - name: Run tests
+      - name: Run tests with coverage
         env:
           TEST_DATABASE_URL: postgresql://m2x_user:m2x_password@localhost:5432/m2x_task_management
         working-directory: web
-        run: pytest tests/ -v
+        run: |
+          pytest tests/ -v --cov=. --cov-report=xml --cov-report=term-missing
+
+      - name: Upload coverage report
+        uses: codecov/codecov-action@v4
+        if: always()
+        with:
+          files: web/coverage.xml
+          flags: unittests
+          fail_ci_if_error: false
+
+  lint:
+    name: Lint & Format
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: 'pip'
+
+      - name: Install linting tools
+        run: |
+          pip install black isort flake8
+
+      - name: Check formatting with Black
+        run: black --check --diff web/
+
+      - name: Check imports with isort
+        run: isort --check-only --diff --profile black web/
+
+      - name: Lint with flake8
+        run: flake8 web/ --max-line-length=100 --extend-ignore=E203,W503
 
   docker:
     name: Docker Build
@@ -71,6 +107,14 @@ jobs:
         run: |
           curl -f http://localhost:8080/ || exit 1
           curl -f http://localhost:8080/api/tenants || exit 1
+          curl -f http://localhost:8080/health || exit 1
+
+      - name: Run API smoke tests
+        run: |
+          # Test pagination
+          curl -f "http://localhost:8080/api/tenants/11111111-1111-1111-1111-111111111111/tasks?page=1&per_page=5" || exit 1
+          # Test stats endpoint
+          curl -f "http://localhost:8080/api/tenants/11111111-1111-1111-1111-111111111111/stats" || exit 1
 
       - name: Stop services
         run: docker compose down

@@ -161,14 +161,10 @@ class TestConstraints:
     def test_task_part_quantity_positive(self, db_cursor):
         """Verify task_parts quantity must be positive."""
         # Get a task and part ID first
-        db_cursor.execute(
-            "SELECT id FROM tasks WHERE tenant_id = %s LIMIT 1", (TEST_TENANT_ID,)
-        )
+        db_cursor.execute("SELECT id FROM tasks WHERE tenant_id = %s LIMIT 1", (TEST_TENANT_ID,))
         task = db_cursor.fetchone()
 
-        db_cursor.execute(
-            "SELECT id FROM parts WHERE tenant_id = %s LIMIT 1", (TEST_TENANT_ID,)
-        )
+        db_cursor.execute("SELECT id FROM parts WHERE tenant_id = %s LIMIT 1", (TEST_TENANT_ID,))
         part = db_cursor.fetchone()
 
         if task and part:
