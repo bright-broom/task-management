@@ -19,7 +19,8 @@
       "Bash(pip install:*)",
       "Bash(black:*)",
       "Bash(isort:*)",
-      "Bash(gh run view:*)"
+      "Bash(gh run view:*)",
+      "Bash(tree:*)"
     ]
   }
 }
