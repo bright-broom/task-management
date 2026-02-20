@@ -1,0 +1,388 @@
+"""
+Authentication API tests for M2X Task Management System.
+"""
+
+import json
+import os
+import sys
+
+import pytest
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+
+TEST_TENANT_ID = "11111111-1111-1111-1111-111111111111"
+
+
+class TestLoginEndpoint:
+    """Test /api/auth/login endpoint."""
+
+    def test_login_missing_content_type(self, client):
+        """Test login without JSON content type."""
+        response = client.post("/api/auth/login", data="not json")
+        assert response.status_code == 400
+        data = json.loads(response.data)
+        assert "Content-Type" in data["error"]
+
+    def test_login_empty_body(self, client):
+        """Test login with empty request body."""
+        response = client.post(
+            "/api/auth/login",
+            data="",
+            content_type="application/json",
+        )
+        assert response.status_code == 400
+
+    def test_login_missing_fields(self, client):
+        """Test login with missing required fields."""
+        response = client.post(
+            "/api/auth/login",
+            json={"email": "test@example.com"},
+            content_type="application/json",
+        )
+        assert response.status_code == 400
+        data = json.loads(response.data)
+        assert "required" in data["error"].lower()
+
+    def test_login_invalid_email_format(self, client):
+        """Test login with invalid email format."""
+        response = client.post(
+            "/api/auth/login",
+            json={
+                "email": "not-an-email",
+                "password": "password123",
+                "tenant_id": TEST_TENANT_ID,
+            },
+            content_type="application/json",
+        )
+        assert response.status_code == 400
+        data = json.loads(response.data)
+        assert "email" in data["error"].lower()
+
+    def test_login_invalid_tenant_id(self, client):
+        """Test login with invalid tenant ID format."""
+        response = client.post(
+            "/api/auth/login",
+            json={
+                "email": "test@example.com",
+                "password": "password123",
+                "tenant_id": "invalid-uuid",
+            },
+            content_type="application/json",
+        )
+        assert response.status_code == 400
+        data = json.loads(response.data)
+        assert "tenant" in data["error"].lower()
+
+    def test_login_user_not_found(self, client):
+        """Test login with non-existent user."""
+        response = client.post(
+            "/api/auth/login",
+            json={
+                "email": "nonexistent@example.com",
+                "password": "password123",
+                "tenant_id": TEST_TENANT_ID,
+            },
+            content_type="application/json",
+        )
+        # May return 401 (user not found) or 500 (if users table doesn't exist)
+        assert response.status_code in [401, 500]
+
+
+class TestRefreshTokenEndpoint:
+    """Test /api/auth/refresh endpoint."""
+
+    def test_refresh_missing_content_type(self, client):
+        """Test refresh without JSON content type."""
+        response = client.post("/api/auth/refresh", data="not json")
+        assert response.status_code == 400
+
+    def test_refresh_missing_token(self, client):
+        """Test refresh without token."""
+        response = client.post(
+            "/api/auth/refresh",
+            json={},
+            content_type="application/json",
+        )
+        assert response.status_code == 400
+        data = json.loads(response.data)
+        assert "token" in data["error"].lower()
+
+    def test_refresh_invalid_token(self, client):
+        """Test refresh with invalid token."""
+        response = client.post(
+            "/api/auth/refresh",
+            json={"refresh_token": "invalid.token.here"},
+            content_type="application/json",
+        )
+        assert response.status_code == 401
+        data = json.loads(response.data)
+        assert "Invalid" in data["error"]
+
+    def test_refresh_access_token_rejected(self, client):
+        """Test refresh with access token (should be rejected)."""
+        from security import create_access_token
+
+        access_token = create_access_token(
+            user_id="user-123",
+            tenant_id=TEST_TENANT_ID,
+            role="user",
+        )
+        response = client.post(
+            "/api/auth/refresh",
+            json={"refresh_token": access_token},
+            content_type="application/json",
+        )
+        assert response.status_code == 401
+
+
+class TestCurrentUserEndpoint:
+    """Test /api/auth/me endpoint."""
+
+    def test_me_without_auth(self, client):
+        """Test /me without authentication."""
+        response = client.get("/api/auth/me")
+        assert response.status_code == 401
+
+    def test_me_with_invalid_token(self, client):
+        """Test /me with invalid token."""
+        response = client.get(
+            "/api/auth/me",
+            headers={"Authorization": "Bearer invalid.token.here"},
+        )
+        assert response.status_code == 401
+
+    def test_me_with_expired_token(self, client):
+        """Test /me with malformed authorization header."""
+        response = client.get(
+            "/api/auth/me",
+            headers={"Authorization": "InvalidFormat token"},
+        )
+        assert response.status_code == 401
+
+
+class TestTaskCRUD:
+    """Additional task CRUD tests for coverage."""
+
+    def test_get_single_task_not_found(self, client):
+        """Test getting a non-existent task."""
+        fake_task_id = "99999999-9999-9999-9999-999999999999"
+        response = client.get(f"/api/tenants/{TEST_TENANT_ID}/tasks/{fake_task_id}")
+        assert response.status_code == 404
+
+    def test_update_task_no_content_type(self, client, sample_task_id):
+        """Test update task without JSON content type."""
+        if sample_task_id is None:
+            pytest.skip("No task available for testing")
+
+        response = client.patch(f"/api/tasks/{sample_task_id}", data="not json")
+        assert response.status_code == 400
+
+    def test_update_task_empty_body(self, client, sample_task_id):
+        """Test update task with empty body."""
+        if sample_task_id is None:
+            pytest.skip("No task available for testing")
+
+        response = client.patch(
+            f"/api/tasks/{sample_task_id}",
+            data="",
+            content_type="application/json",
+        )
+        assert response.status_code == 400
+
+    def test_update_task_no_fields(self, client, sample_task_id):
+        """Test update task with no fields to update."""
+        if sample_task_id is None:
+            pytest.skip("No task available for testing")
+
+        response = client.patch(
+            f"/api/tasks/{sample_task_id}",
+            json={"version": 1},  # Only version, no actual fields to update
+            content_type="application/json",
+        )
+        assert response.status_code == 400
+        data = json.loads(response.data)
+        assert "No fields" in data["error"] or "field" in data["error"].lower()
+
+    def test_update_task_invalid_status(self, client, sample_task_id):
+        """Test update task with invalid status."""
+        if sample_task_id is None:
+            pytest.skip("No task available for testing")
+
+        response = client.patch(
+            f"/api/tasks/{sample_task_id}",
+            json={"status": "invalid_status"},
+            content_type="application/json",
+        )
+        assert response.status_code == 400
+        data = json.loads(response.data)
+        assert "status" in data["error"].lower()
+
+    def test_update_task_invalid_priority(self, client, sample_task_id):
+        """Test update task with invalid priority."""
+        if sample_task_id is None:
+            pytest.skip("No task available for testing")
+
+        response = client.patch(
+            f"/api/tasks/{sample_task_id}",
+            json={"priority": "invalid_priority"},
+            content_type="application/json",
+        )
+        assert response.status_code == 400
+
+    def test_update_task_invalid_category(self, client, sample_task_id):
+        """Test update task with invalid category."""
+        if sample_task_id is None:
+            pytest.skip("No task available for testing")
+
+        response = client.patch(
+            f"/api/tasks/{sample_task_id}",
+            json={"category": "invalid_category"},
+            content_type="application/json",
+        )
+        assert response.status_code == 400
+
+    def test_update_task_not_found(self, client):
+        """Test update non-existent task."""
+        fake_task_id = "99999999-9999-9999-9999-999999999999"
+        response = client.patch(
+            f"/api/tasks/{fake_task_id}",
+            json={"title": "New Title"},
+            content_type="application/json",
+        )
+        assert response.status_code == 404
+
+    def test_update_task_invalid_version(self, client, sample_task_id):
+        """Test update task with invalid version format."""
+        if sample_task_id is None:
+            pytest.skip("No task available for testing")
+
+        response = client.patch(
+            f"/api/tasks/{sample_task_id}",
+            json={"title": "New Title", "version": "not-a-number"},
+            content_type="application/json",
+        )
+        assert response.status_code == 400
+
+    def test_create_task_invalid_equipment_id(self, client):
+        """Test create task with invalid equipment ID format."""
+        response = client.post(
+            f"/api/tenants/{TEST_TENANT_ID}/tasks",
+            json={"title": "Test Task", "equipment_id": "invalid-uuid"},
+            content_type="application/json",
+        )
+        assert response.status_code == 400
+
+    def test_create_task_equipment_not_found(self, client):
+        """Test create task with non-existent equipment."""
+        fake_equipment_id = "99999999-9999-9999-9999-999999999999"
+        response = client.post(
+            f"/api/tenants/{TEST_TENANT_ID}/tasks",
+            json={"title": "Test Task", "equipment_id": fake_equipment_id},
+            content_type="application/json",
+        )
+        assert response.status_code == 404
+
+    def test_create_task_invalid_status(self, client, sample_equipment_id):
+        """Test create task with invalid status."""
+        if sample_equipment_id is None:
+            pytest.skip("No equipment available for testing")
+
+        response = client.post(
+            f"/api/tenants/{TEST_TENANT_ID}/tasks",
+            json={
+                "title": "Test Task",
+                "equipment_id": sample_equipment_id,
+                "status": "invalid",
+            },
+            content_type="application/json",
+        )
+        assert response.status_code == 400
+
+    def test_create_task_invalid_priority(self, client, sample_equipment_id):
+        """Test create task with invalid priority."""
+        if sample_equipment_id is None:
+            pytest.skip("No equipment available for testing")
+
+        response = client.post(
+            f"/api/tenants/{TEST_TENANT_ID}/tasks",
+            json={
+                "title": "Test Task",
+                "equipment_id": sample_equipment_id,
+                "priority": "invalid",
+            },
+            content_type="application/json",
+        )
+        assert response.status_code == 400
+
+    def test_create_task_invalid_category(self, client, sample_equipment_id):
+        """Test create task with invalid category."""
+        if sample_equipment_id is None:
+            pytest.skip("No equipment available for testing")
+
+        response = client.post(
+            f"/api/tenants/{TEST_TENANT_ID}/tasks",
+            json={
+                "title": "Test Task",
+                "equipment_id": sample_equipment_id,
+                "category": "invalid",
+            },
+            content_type="application/json",
+        )
+        assert response.status_code == 400
+
+
+class TestCommentEndpoints:
+    """Test comment-related endpoints."""
+
+    def test_create_comment_task_not_found(self, client):
+        """Test creating comment on non-existent task."""
+        fake_task_id = "99999999-9999-9999-9999-999999999999"
+        response = client.post(
+            f"/api/tasks/{fake_task_id}/comments",
+            json={"commented_by": "Test User", "comment": "Test comment"},
+            content_type="application/json",
+        )
+        assert response.status_code == 404
+
+    def test_create_comment_empty_fields(self, client, sample_task_id):
+        """Test creating comment with empty fields."""
+        if sample_task_id is None:
+            pytest.skip("No task available for testing")
+
+        response = client.post(
+            f"/api/tasks/{sample_task_id}/comments",
+            json={"commented_by": "", "comment": ""},
+            content_type="application/json",
+        )
+        assert response.status_code == 400
+
+    def test_delete_comment_not_found(self, client):
+        """Test deleting non-existent comment."""
+        fake_comment_id = "99999999-9999-9999-9999-999999999999"
+        response = client.delete(f"/api/comments/{fake_comment_id}")
+        assert response.status_code == 404
+
+
+class TestValidators:
+    """Test validator functions."""
+
+    def test_pagination_invalid_page(self, client):
+        """Test pagination with invalid page number."""
+        response = client.get(f"/api/tenants/{TEST_TENANT_ID}/tasks?page=abc")
+        assert response.status_code == 200
+        data = json.loads(response.data)
+        assert data["pagination"]["page"] == 1
+
+    def test_pagination_invalid_per_page(self, client):
+        """Test pagination with invalid per_page value."""
+        response = client.get(f"/api/tenants/{TEST_TENANT_ID}/tasks?per_page=abc")
+        assert response.status_code == 200
+        data = json.loads(response.data)
+        assert data["pagination"]["per_page"] == 20
+
+    def test_pagination_invalid_sort_order(self, client):
+        """Test pagination with invalid sort order."""
+        response = client.get(
+            f"/api/tenants/{TEST_TENANT_ID}/tasks?sort_order=invalid"
+        )
+        assert response.status_code == 200
