@@ -21,26 +21,17 @@ from psycopg2.extras import RealDictCursor
 
 logger = get_logger(__name__)
 
-# Database URL from environment
 DATABASE_URL = os.environ.get(
     "DATABASE_URL", "postgresql://m2x_user:m2x_password@db:5432/m2x_task_management"
 )
-
-# Connection pool configuration
 POOL_MIN_CONNECTIONS = int(os.environ.get("POOL_MIN_CONNECTIONS", "2"))
 POOL_MAX_CONNECTIONS = int(os.environ.get("POOL_MAX_CONNECTIONS", "20"))
 
-# Global connection pool (lazy initialization)
 _connection_pool: pool.ThreadedConnectionPool | None = None
 
 
 def get_connection_pool() -> pool.ThreadedConnectionPool:
-    """
-    Get thread-safe connection pool (singleton pattern).
-
-    Returns:
-        ThreadedConnectionPool: Database connection pool
-    """
+    """Get thread-safe connection pool (singleton)."""
     global _connection_pool
     if _connection_pool is None:
         try:
@@ -69,21 +60,12 @@ def close_connection_pool() -> None:
         logger.info("Connection pool closed")
 
 
-# Register cleanup on application exit
 atexit.register(close_connection_pool)
 
 
 @contextmanager
 def get_db_connection() -> Generator[Any, None, None]:
-    """
-    Database connection context manager with connection pooling.
-
-    Gets a connection from the pool and returns it after use.
-    This reduces connection creation overhead and improves performance.
-
-    Yields:
-        psycopg2 connection object with RealDictCursor
-    """
+    """Get a connection from the pool."""
     conn = None
     connection_pool = None
     try:
@@ -100,15 +82,7 @@ def get_db_connection() -> Generator[Any, None, None]:
 
 @contextmanager
 def get_db_cursor(conn: Any) -> Generator[Any, None, None]:
-    """
-    Database cursor context manager.
-
-    Args:
-        conn: Database connection
-
-    Yields:
-        Database cursor
-    """
+    """Get a cursor from the connection."""
     cur = conn.cursor()
     try:
         yield cur
@@ -123,28 +97,9 @@ def tenant_context(
     user_id: str | None = None,
     user_name: str | None = None,
 ) -> Generator[Any, None, None]:
-    """
-    Set tenant and user context for Row Level Security and audit logging.
-
-    This sets session variables used by RLS policies and audit triggers:
-    - app.current_tenant_id: Tenant isolation
-    - app.current_user_id: User tracking for audit logs
-    - app.current_user_name: User name snapshot for audit logs
-
-    Args:
-        conn: Database connection
-        tenant_id: UUID of the current tenant
-        user_id: Optional UUID of the current user (for audit logging)
-        user_name: Optional display name of the current user
-
-    Yields:
-        Database cursor with tenant/user context set
-    """
+    """Set tenant/user context for RLS and audit logging."""
     with get_db_cursor(conn) as cur:
-        # Set tenant context for RLS
         cur.execute("SET app.current_tenant_id = %s", (tenant_id,))
-
-        # Set user context for audit logging (if provided)
         if user_id:
             cur.execute("SET app.current_user_id = %s", (user_id,))
         if user_name:
@@ -152,7 +107,6 @@ def tenant_context(
 
         yield cur
 
-        # Reset all context variables
         cur.execute("RESET app.current_tenant_id")
         cur.execute("RESET app.current_user_id")
         cur.execute("RESET app.current_user_name")

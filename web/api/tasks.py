@@ -25,11 +25,8 @@ from validators import (
     validate_version,
 )
 
-# Valid task statuses
 VALID_TASK_STATUSES = ("todo", "in_progress", "done")
-# Valid priorities
 VALID_TASK_PRIORITIES = ("critical", "high", "medium", "low")
-# Valid categories
 VALID_TASK_CATEGORIES = (
     "maintenance",
     "repair",
@@ -94,7 +91,6 @@ def get_tasks(tenant_id: str) -> Response:
 
     with get_db_connection() as conn:
         with tenant_context(conn, tenant_id) as cur:
-            # Build WHERE clause - always filter by tenant_id
             conditions = ["t.tenant_id = %s"]
             params: list[Any] = [tenant_id]
 
@@ -108,14 +104,12 @@ def get_tasks(tenant_id: str) -> Response:
 
             where_clause = "WHERE " + " AND ".join(conditions)
 
-            # Get total count
             cur.execute(
                 f"SELECT COUNT(*) as count FROM tasks t {where_clause}",
                 params,
             )
             total = cur.fetchone()["count"]
 
-            # Get paginated results
             cur.execute(
                 f"""
                 SELECT t.*, e.name AS equipment_name
@@ -159,12 +153,9 @@ def get_task(tenant_id: str, task_id: str) -> tuple[Response, int]:
 @tasks_bp.route("/api/tasks/<task_id>/details")
 @validate_uuid("task_id")
 def get_task_details(task_id: str) -> Response:
-    """
-    Get detailed task information including custom fields, parts, and comments.
-    """
+    """Get task with custom fields, parts, and comments."""
     with get_db_connection() as conn:
         with get_db_cursor(conn) as cur:
-            # Task basic info
             cur.execute(
                 """
                 SELECT t.*, e.name AS equipment_name
@@ -179,10 +170,8 @@ def get_task_details(task_id: str) -> Response:
             if not task:
                 return jsonify({"task": None, "custom_fields": [], "parts": [], "comments": []})
 
-            # Set tenant context for RLS
             cur.execute("SET app.current_tenant_id = %s", (str(task["tenant_id"]),))
 
-            # Custom fields (EAV pattern)
             cur.execute(
                 """
                 SELECT cfd.field_name, cfd.field_type, cfv.value
@@ -195,7 +184,6 @@ def get_task_details(task_id: str) -> Response:
             )
             custom_fields = cur.fetchall()
 
-            # Parts used
             cur.execute(
                 """
                 SELECT p.name, p.part_number, tp.quantity
@@ -207,7 +195,6 @@ def get_task_details(task_id: str) -> Response:
             )
             parts = cur.fetchall()
 
-            # Comments
             cur.execute(
                 """
                 SELECT id, commented_by, comment, created_at
@@ -244,12 +231,10 @@ def create_task(tenant_id: str) -> tuple[Response, int]:
     data = request.get_json()
     user_id, user_name = get_request_user_context()
 
-    # Validate equipment_id
     equipment_id = data.get("equipment_id")
     if not is_valid_uuid(equipment_id):
         return jsonify({"error": "Invalid equipment_id format"}), 400
 
-    # Validate status if provided
     status = data.get("status", "todo")
     if status not in VALID_TASK_STATUSES:
         return (
@@ -257,7 +242,6 @@ def create_task(tenant_id: str) -> tuple[Response, int]:
             400,
         )
 
-    # Validate priority if provided
     priority = data.get("priority", "medium")
     if priority not in VALID_TASK_PRIORITIES:
         return (
@@ -267,7 +251,6 @@ def create_task(tenant_id: str) -> tuple[Response, int]:
             400,
         )
 
-    # Validate category if provided
     category = data.get("category", "maintenance")
     if category not in VALID_TASK_CATEGORIES:
         return (
@@ -277,7 +260,6 @@ def create_task(tenant_id: str) -> tuple[Response, int]:
             400,
         )
 
-    # Sanitize inputs
     title = sanitize_string(data.get("title"))
     description = sanitize_string(data.get("description"), max_length=2000)
     assigned_to = sanitize_string(data.get("assigned_to"))
@@ -286,12 +268,10 @@ def create_task(tenant_id: str) -> tuple[Response, int]:
 
     with get_db_connection() as conn:
         with tenant_context(conn, tenant_id, user_id, user_name) as cur:
-            # Verify equipment exists in this tenant
             cur.execute("SELECT id FROM equipments WHERE id = %s", (equipment_id,))
             if not cur.fetchone():
                 return jsonify({"error": "Equipment not found"}), 404
 
-            # Check if v2 schema columns exist
             cur.execute("""SELECT column_name FROM information_schema.columns
                    WHERE table_name = 'tasks' AND column_name = 'priority'""")
             has_v2_schema = cur.fetchone() is not None
@@ -320,7 +300,6 @@ def create_task(tenant_id: str) -> tuple[Response, int]:
                     ),
                 )
             else:
-                # v1 schema fallback
                 cur.execute(
                     """
                     INSERT INTO tasks
@@ -351,13 +330,11 @@ def update_task(task_id: str) -> tuple[Response, int]:
 
     user_id, user_name = get_request_user_context()
 
-    # Validate version for optimistic locking
     try:
         expected_version = validate_version(data)
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
 
-    # Build update fields
     updates = []
     params: list[Any] = []
 
@@ -388,7 +365,6 @@ def update_task(task_id: str) -> tuple[Response, int]:
         updates.append("assigned_to = %s")
         params.append(sanitize_string(data["assigned_to"]))
 
-    # v2 schema fields
     v2_updates: list[str] = []
     v2_params: list[Any] = []
 
@@ -433,13 +409,11 @@ def update_task(task_id: str) -> tuple[Response, int]:
 
     with get_db_connection() as conn:
         with get_db_cursor(conn) as cur:
-            # Set user context for audit logging
             if user_id:
                 cur.execute("SET app.current_user_id = %s", (user_id,))
             if user_name:
                 cur.execute("SET app.current_user_name = %s", (user_name,))
 
-            # Check if v2 schema exists and merge v2 updates
             if v2_updates:
                 cur.execute("""SELECT column_name FROM information_schema.columns
                        WHERE table_name = 'tasks' AND column_name = 'priority'""")
@@ -447,11 +421,9 @@ def update_task(task_id: str) -> tuple[Response, int]:
                     updates.extend(v2_updates)
                     params.extend(v2_params)
 
-            # Ensure we have updates after schema check
             if not updates:
                 return jsonify({"error": "No fields to update for current schema"}), 400
 
-            # Build WHERE clause with optimistic lock check
             where_conditions = ["id = %s"]
             params.append(task_id)
 
@@ -470,7 +442,6 @@ def update_task(task_id: str) -> tuple[Response, int]:
             task = cur.fetchone()
 
             if not task:
-                # Check if task exists but version mismatch
                 if expected_version is not None:
                     cur.execute(
                         "SELECT id, version FROM tasks WHERE id = %s",
@@ -511,14 +482,12 @@ def create_comment(task_id: str) -> tuple[Response, int]:
 
     with get_db_connection() as conn:
         with get_db_cursor(conn) as cur:
-            # Get task to verify it exists and get tenant_id
             cur.execute("SELECT tenant_id FROM tasks WHERE id = %s", (task_id,))
             task = cur.fetchone()
 
             if not task:
                 return jsonify({"error": "Task not found"}), 404
 
-            # Create comment
             cur.execute(
                 """
                 INSERT INTO task_comments (tenant_id, task_id, commented_by, comment)
@@ -561,10 +530,9 @@ def delete_comment(comment_id: str) -> tuple[Response, int]:
 @tasks_bp.route("/api/tenants/<tenant_id>/stats")
 @validate_uuid("tenant_id")
 def get_stats(tenant_id: str) -> Response:
-    """Get statistics for a tenant's dashboard."""
+    """Get dashboard statistics for a tenant."""
     with get_db_connection() as conn:
         with tenant_context(conn, tenant_id) as cur:
-            # Tasks by status
             cur.execute(
                 """
                 SELECT status, COUNT(*) as count
@@ -576,7 +544,6 @@ def get_stats(tenant_id: str) -> Response:
             )
             tasks_by_status = cur.fetchall()
 
-            # Tasks by equipment
             cur.execute(
                 """
                 SELECT e.name, COUNT(t.id) as count
@@ -590,7 +557,6 @@ def get_stats(tenant_id: str) -> Response:
             )
             tasks_by_equipment = cur.fetchall()
 
-            # Parts low stock
             cur.execute(
                 """
                 SELECT name, part_number, stock_quantity, reorder_point

@@ -24,83 +24,71 @@ from typing import Any
 
 import psycopg2
 
-# Database and validation utilities
 from database import get_db_connection, get_db_cursor, tenant_context
 from flask import Flask, Response, jsonify, render_template
-
-# Logging configuration
 from logging_config import configure_logging, get_logger, setup_flask_logging
-
-# Security module
+from metrics import init_metrics, metrics_endpoint
 from security import init_security, rate_limit
 from validators import PaginationParams, build_pagination_response, validate_uuid
 
-# ============================================================================
-# Application Configuration
-# ============================================================================
-
 app = Flask(__name__)
-app.config["JSON_AS_ASCII"] = False  # Support Japanese characters in JSON
-
-# Security configuration
+app.config["JSON_AS_ASCII"] = False
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", os.urandom(32).hex())
 app.config["SECURITY_DB_LOGGING"] = os.environ.get("SECURITY_DB_LOGGING", "false").lower() == "true"
 
-# Initialize security module
 init_security(app)
-
-# Configure structured logging (JSON format)
+init_metrics(app)
 configure_logging()
 logger = get_logger(__name__)
-
-# Flask request logging middleware
 setup_flask_logging(app)
 
-# Swagger UI initialization (API documentation)
 from swagger_config import init_swagger  # noqa: E402
 
 init_swagger(app)
 
-# Register API blueprints
 from api import register_blueprints  # noqa: E402
 
 register_blueprints(app)
 
 
-# ============================================================================
-# Error Handlers
-# ============================================================================
-
-
 @app.errorhandler(404)
 def not_found(error: Exception) -> tuple[Response, int]:
-    """Handle 404 errors."""
     return jsonify({"error": "Resource not found"}), 404
 
 
 @app.errorhandler(500)
 def internal_error(error: Exception) -> tuple[Response, int]:
-    """Handle 500 errors."""
     logger.error(f"Internal server error: {error}")
     return jsonify({"error": "Internal server error"}), 500
 
 
 @app.errorhandler(psycopg2.Error)
 def database_error(error: psycopg2.Error) -> tuple[Response, int]:
-    """Handle database errors."""
     logger.error(f"Database error: {error}")
     return jsonify({"error": "Database error occurred"}), 500
 
 
-# ============================================================================
-# Core Routes
-# ============================================================================
-
-
 @app.route("/")
 def index() -> str:
-    """Render the main page."""
     return render_template("index.html")
+
+
+@app.route("/metrics")
+def metrics() -> tuple[Response, int]:
+    """
+    Prometheusメトリクスエンドポイント
+    ---
+    tags:
+      - Monitoring
+    responses:
+      200:
+        description: Prometheus形式のメトリクス
+        content:
+          text/plain:
+            schema:
+              type: string
+    """
+    return metrics_endpoint()
 
 
 @app.route("/health")
@@ -129,11 +117,6 @@ def health_check() -> tuple[Response, int]:
     except Exception as e:
         logger.error(f"Health check failed: {e}")
         return jsonify({"status": "unhealthy", "database": "disconnected"}), 503
-
-
-# ============================================================================
-# Tenant, Equipment, Parts Routes
-# ============================================================================
 
 
 @app.route("/api/tenants")
@@ -167,14 +150,12 @@ def get_equipments(tenant_id: str) -> Response:
 
     with get_db_connection() as conn:
         with tenant_context(conn, tenant_id) as cur:
-            # Get total count
             cur.execute(
                 "SELECT COUNT(*) as count FROM equipments WHERE tenant_id = %s",
                 (tenant_id,),
             )
             total = cur.fetchone()["count"]
 
-            # Get paginated results with hierarchy
             cur.execute(
                 """
                 WITH RECURSIVE equipment_tree AS (
@@ -215,7 +196,6 @@ def get_parts(tenant_id: str) -> Response:
 
     with get_db_connection() as conn:
         with tenant_context(conn, tenant_id) as cur:
-            # Build WHERE clause
             conditions = ["p.tenant_id = %s"]
             params: list[Any] = [tenant_id]
 
@@ -224,14 +204,12 @@ def get_parts(tenant_id: str) -> Response:
 
             where_clause = "WHERE " + " AND ".join(conditions)
 
-            # Get total count
             cur.execute(
                 f"SELECT COUNT(*) as count FROM parts p {where_clause}",
                 params,
             )
             total = cur.fetchone()["count"]
 
-            # Get paginated results
             cur.execute(
                 f"""
                 SELECT p.*,
@@ -253,15 +231,10 @@ def get_parts(tenant_id: str) -> Response:
     return jsonify(build_pagination_response(parts, pagination, total))
 
 
-# ============================================================================
-# Main Entry Point
-# ============================================================================
-
 DEBUG_MODE = os.environ.get("FLASK_DEBUG", "false").lower() == "true"
 
 if DEBUG_MODE:
     logger.warning("DEBUG MODE IS ENABLED - DO NOT USE IN PRODUCTION")
 
 if __name__ == "__main__":
-    # nosec B104: Binding to all interfaces is required for Docker container
     app.run(host="0.0.0.0", port=5000, debug=DEBUG_MODE)  # nosec B104

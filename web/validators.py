@@ -18,10 +18,8 @@ from typing import Any, Callable, TypeVar
 
 from flask import jsonify, request
 
-# Type variable for generic function
 F = TypeVar("F", bound=Callable[..., Any])
 
-# Pagination constants
 DEFAULT_PAGE_SIZE = 20
 MAX_PAGE_SIZE = 100
 
@@ -68,15 +66,7 @@ class PaginationParams:
 
 
 def is_valid_uuid(value: str) -> bool:
-    """
-    Validate if a string is a valid UUID.
-
-    Args:
-        value: String to validate
-
-    Returns:
-        True if valid UUID, False otherwise
-    """
+    """Check if string is a valid UUID."""
     try:
         uuid.UUID(str(value))
         return True
@@ -85,15 +75,7 @@ def is_valid_uuid(value: str) -> bool:
 
 
 def validate_uuid(param_name: str) -> Callable[[F], F]:
-    """
-    Decorator to validate UUID parameters.
-
-    Args:
-        param_name: Name of the parameter to validate
-
-    Returns:
-        Decorated function
-    """
+    """Decorator to validate UUID parameters."""
 
     def decorator(f: F) -> F:
         @wraps(f)
@@ -118,15 +100,7 @@ def validate_uuid(param_name: str) -> Callable[[F], F]:
 
 
 def validate_required_fields(required: list[str]) -> Callable[[F], F]:
-    """
-    Decorator to validate required JSON fields in request body.
-
-    Args:
-        required: List of required field names
-
-    Returns:
-        Decorated function
-    """
+    """Decorator to validate required JSON fields."""
 
     def decorator(f: F) -> F:
         @wraps(f)
@@ -157,16 +131,7 @@ def validate_required_fields(required: list[str]) -> Callable[[F], F]:
 
 
 def sanitize_string(value: str | None, max_length: int = 255) -> str | None:
-    """
-    Sanitize string input.
-
-    Args:
-        value: Input string
-        max_length: Maximum allowed length
-
-    Returns:
-        Sanitized string or None
-    """
+    """Sanitize and truncate string input."""
     if value is None:
         return None
     return str(value).strip()[:max_length]
@@ -179,19 +144,7 @@ class OptimisticLockError(Exception):
 
 
 def validate_version(data: dict[str, Any], field: str = "version") -> int | None:
-    """
-    Validate and extract version number from request data.
-
-    Args:
-        data: Request JSON data
-        field: Version field name
-
-    Returns:
-        Version number (None if not specified)
-
-    Raises:
-        ValueError: Invalid version format
-    """
+    """Extract and validate version number for optimistic locking."""
     version = data.get(field)
     if version is None:
         return None
@@ -209,32 +162,14 @@ def build_optimistic_update(
     params: list[Any],
     current_version: int | None,
 ) -> tuple[list[str], list[Any]]:
-    """
-    Build UPDATE statement with optimistic locking support.
-
-    Args:
-        updates: Existing SET fields list
-        params: Existing parameters list
-        current_version: Client-side version number
-
-    Returns:
-        Tuple of (updated fields list, updated params list)
-    """
+    """Add version increment for optimistic locking."""
     if current_version is not None:
         updates.append("version = version + 1")
     return updates, params
 
 
 def get_request_user_context() -> tuple[str | None, str | None]:
-    """
-    Get user context from request headers.
-
-    In production, this would be extracted from JWT.
-    This is a simple header-based implementation for development.
-
-    Returns:
-        Tuple of (user_id, user_name)
-    """
+    """Get user context from request headers (development only)."""
     user_id = request.headers.get("X-User-ID")
     user_name = request.headers.get("X-User-Name")
     return user_id, user_name
@@ -245,17 +180,7 @@ def build_pagination_response(
     pagination: PaginationParams,
     total: int,
 ) -> dict[str, Any]:
-    """
-    Build standard pagination response.
-
-    Args:
-        items: List of items
-        pagination: Pagination parameters
-        total: Total count
-
-    Returns:
-        Response dict with items and pagination metadata
-    """
+    """Build standard pagination response."""
     return {
         "items": items,
         "pagination": {
