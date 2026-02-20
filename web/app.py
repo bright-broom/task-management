@@ -87,6 +87,11 @@ logger = get_logger(__name__)
 # Flaskリクエストログミドルウェア
 setup_flask_logging(app)
 
+# Swagger UI初期化（APIドキュメント）
+from swagger_config import init_swagger  # noqa: E402
+
+init_swagger(app)
+
 DATABASE_URL = os.environ.get(
     "DATABASE_URL", "postgresql://m2x_user:m2x_password@db:5432/m2x_task_management"
 )
@@ -500,10 +505,19 @@ def index() -> str:
 @app.route("/api/tenants")
 def get_tenants() -> Response:
     """
-    Get all tenants.
-
-    Returns:
-        JSON array of tenant objects
+    テナント一覧取得
+    ---
+    tags:
+      - Tenants
+    responses:
+      200:
+        description: テナント一覧
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: '#/components/schemas/Tenant'
     """
     with get_db_connection() as conn:
         with get_db_cursor(conn) as cur:
@@ -516,16 +530,51 @@ def get_tenants() -> Response:
 @validate_uuid("tenant_id")
 def get_equipments(tenant_id: str) -> Response:
     """
-    Get equipments for a tenant with hierarchy information.
-
-    Uses recursive CTE to build equipment tree with depth levels.
-
-    Args:
-        tenant_id: Tenant UUID
-
-    Query Parameters:
-        page: Page number (default: 1)
-        per_page: Items per page (default: 20, max: 100)
+    設備一覧取得（階層構造対応）
+    ---
+    tags:
+      - Equipments
+    parameters:
+      - name: tenant_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: テナントID
+      - name: page
+        in: query
+        schema:
+          type: integer
+          default: 1
+        description: ページ番号
+      - name: per_page
+        in: query
+        schema:
+          type: integer
+          default: 20
+          maximum: 100
+        description: 1ページあたりの件数
+    responses:
+      200:
+        description: 設備一覧（ページネーション付き）
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                items:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/Equipment'
+                pagination:
+                  $ref: '#/components/schemas/Pagination'
+      400:
+        description: 不正なリクエスト
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Error'
 
     Returns:
         JSON object with items array and pagination metadata
@@ -580,18 +629,50 @@ def get_equipments(tenant_id: str) -> Response:
 @validate_uuid("tenant_id")
 def get_parts(tenant_id: str) -> Response:
     """
-    Get parts for a tenant with related equipment information.
-
-    Args:
-        tenant_id: Tenant UUID
-
-    Query Parameters:
-        page: Page number (default: 1)
-        per_page: Items per page (default: 20, max: 100)
-        low_stock: If 'true', only return parts at or below reorder point
-
-    Returns:
-        JSON object with items array and pagination metadata
+    部品一覧取得
+    ---
+    tags:
+      - Parts
+    parameters:
+      - name: tenant_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: テナントID
+      - name: page
+        in: query
+        schema:
+          type: integer
+          default: 1
+        description: ページ番号
+      - name: per_page
+        in: query
+        schema:
+          type: integer
+          default: 20
+          maximum: 100
+        description: 1ページあたりの件数
+      - name: low_stock
+        in: query
+        schema:
+          type: boolean
+        description: 在庫不足の部品のみ取得
+    responses:
+      200:
+        description: 部品一覧（ページネーション付き）
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                items:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/Part'
+                pagination:
+                  $ref: '#/components/schemas/Pagination'
     """
     pagination = PaginationParams.from_request(default_sort="name")
     low_stock_only = request.args.get("low_stock", "").lower() == "true"
@@ -650,19 +731,57 @@ def get_parts(tenant_id: str) -> Response:
 @validate_uuid("tenant_id")
 def get_tasks(tenant_id: str) -> Response:
     """
-    Get tasks for a tenant.
-
-    Args:
-        tenant_id: Tenant UUID
-
-    Query Parameters:
-        page: Page number (default: 1)
-        per_page: Items per page (default: 20, max: 100)
-        status: Filter by status (todo, in_progress, done)
-        equipment_id: Filter by equipment UUID
-
-    Returns:
-        JSON object with items array and pagination metadata
+    タスク一覧取得
+    ---
+    tags:
+      - Tasks
+    parameters:
+      - name: tenant_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: テナントID
+      - name: page
+        in: query
+        schema:
+          type: integer
+          default: 1
+        description: ページ番号
+      - name: per_page
+        in: query
+        schema:
+          type: integer
+          default: 20
+          maximum: 100
+        description: 1ページあたりの件数
+      - name: status
+        in: query
+        schema:
+          type: string
+          enum: [todo, in_progress, done]
+        description: ステータスでフィルタ
+      - name: equipment_id
+        in: query
+        schema:
+          type: string
+          format: uuid
+        description: 設備IDでフィルタ
+    responses:
+      200:
+        description: タスク一覧（ページネーション付き）
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                items:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/Task'
+                pagination:
+                  $ref: '#/components/schemas/Pagination'
     """
     pagination = PaginationParams.from_request(default_sort="created_at", default_order="desc")
     status_filter = request.args.get("status")
@@ -925,21 +1044,43 @@ VALID_TASK_CATEGORIES = (
 @validate_required_fields(["title", "equipment_id"])
 def create_task(tenant_id: str) -> tuple[Response, int]:
     """
-    Create a new task.
-
-    Args:
-        tenant_id: Tenant UUID
-
-    Request Body:
-        title: Task title (required)
-        equipment_id: Equipment UUID (required)
-        description: Task description (optional)
-        status: Task status (optional, default: 'todo')
-        priority: Task priority (optional, default: 'medium')
-        category: Task category (optional, default: 'maintenance')
-        due_date: Due date YYYY-MM-DD (optional)
-        assigned_to: Assignee name (optional)
-        estimated_hours: Estimated work hours (optional)
+    タスク作成
+    ---
+    tags:
+      - Tasks
+    parameters:
+      - name: tenant_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: テナントID
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/TaskCreate'
+    responses:
+      201:
+        description: タスク作成成功
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Task'
+      400:
+        description: 不正なリクエスト
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Error'
+      404:
+        description: 設備が見つからない
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Error'
 
     Returns:
         Created task object with 201 status
@@ -1314,10 +1455,23 @@ def delete_comment(comment_id: str) -> tuple[Response, int]:
 @rate_limit(limit=120, window_seconds=60)  # ヘルスチェックは緩いレート制限
 def health_check() -> tuple[Response, int]:
     """
-    Health check endpoint for container orchestration.
-
-    Returns:
-        JSON object with health status
+    ヘルスチェックエンドポイント
+    ---
+    tags:
+      - Health
+    responses:
+      200:
+        description: サービス正常
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HealthCheck'
+      503:
+        description: サービス異常
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Error'
     """
     try:
         with get_db_connection() as conn:

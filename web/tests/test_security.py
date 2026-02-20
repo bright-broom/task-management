@@ -371,3 +371,22 @@ class TestRequestIDHeader:
         # Request ID should be a valid UUID format
         request_id = response.headers["X-Request-ID"]
         assert len(request_id) == 36  # UUID format
+
+
+class TestSwaggerDocumentation:
+    """Test Swagger/OpenAPI documentation."""
+
+    def test_swagger_ui_accessible(self, client):
+        """Test that Swagger UI is accessible at /docs."""
+        response = client.get("/docs")
+        assert response.status_code == 200
+        assert b"swagger" in response.data.lower() or b"Swagger" in response.data
+
+    def test_openapi_spec_accessible(self, client):
+        """Test that OpenAPI spec is accessible."""
+        response = client.get("/apispec.json")
+        assert response.status_code == 200
+        data = json.loads(response.data)
+        assert "openapi" in data or "swagger" in data
+        assert "info" in data
+        assert "paths" in data
