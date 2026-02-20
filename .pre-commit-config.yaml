@@ -1,0 +1,71 @@
+# Pre-commit hooks configuration for M2X Task Management System
+# Run `pre-commit install` to set up the hooks
+# Run `pre-commit run --all-files` to check all files
+
+repos:
+  # General hooks
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-json
+      - id: check-added-large-files
+        args: ['--maxkb=1000']
+      - id: check-merge-conflict
+      - id: detect-private-key
+
+  # Python formatting with Black
+  - repo: https://github.com/psf/black
+    rev: 24.1.0
+    hooks:
+      - id: black
+        language_version: python3.11
+        files: ^web/
+
+  # Python import sorting with isort
+  - repo: https://github.com/pycqa/isort
+    rev: 5.13.2
+    hooks:
+      - id: isort
+        args: ["--profile", "black"]
+        files: ^web/
+
+  # Python linting with flake8
+  - repo: https://github.com/pycqa/flake8
+    rev: 7.0.0
+    hooks:
+      - id: flake8
+        files: ^web/
+        args:
+          - --max-line-length=100
+          - --extend-ignore=E203,W503
+
+  # Security scanning with bandit
+  - repo: https://github.com/pycqa/bandit
+    rev: 1.7.7
+    hooks:
+      - id: bandit
+        files: ^web/
+        args: ["-c", "pyproject.toml"]
+        additional_dependencies: ["bandit[toml]"]
+
+  # Type checking with mypy
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.8.0
+    hooks:
+      - id: mypy
+        files: ^web/
+        args: ["--config-file=pyproject.toml"]
+        additional_dependencies:
+          - types-psycopg2==2.9.21.20240201
+          - types-Flask==1.1.6
+
+  # SQL formatting check
+  - repo: https://github.com/sqlfluff/sqlfluff
+    rev: 3.0.0
+    hooks:
+      - id: sqlfluff-lint
+        files: ^db/
+        args: ["--dialect", "postgres"]
