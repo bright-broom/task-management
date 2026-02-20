@@ -427,7 +427,7 @@
                 <td class="px-4 py-3">${UI.fieldTypeBadge(f.field_type)}</td>
                 <td class="px-4 py-3">${f.is_required ? '<span class="text-red-500">必須</span>' : '-'}</td>
                 <td class="px-4 py-3">${f.display_order}</td>
-                <td class="px-4 py-3 text-sm text-gray-500">${f.options ? JSON.parse(f.options).join(', ') : '-'}</td>
+                <td class="px-4 py-3 text-sm text-gray-500">${f.options ? escapeHtml(JSON.parse(f.options).join(', ')) : '-'}</td>
             </tr>
         `,
     };

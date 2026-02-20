@@ -1,201 +1,239 @@
 """
-M2X課題 - 工場向けタスク管理システム Web UI
+M2X Task Management System - Web API
+
+A multi-tenant task management system for factory operations.
+
+Features:
+- Multi-tenant architecture with Row Level Security
+- JWT authentication with role-based access control
+- Equipment hierarchy management
+- Parts inventory management
+- Task management with custom fields and comments
+
+Security:
+- CORS, CSP, HSTS headers
+- Rate limiting
+- Input validation
+- Parameterized queries
 """
+
+from __future__ import annotations
+
 import os
-from flask import Flask, render_template, jsonify
+from typing import Any
+
 import psycopg2
-from psycopg2.extras import RealDictCursor
+from database import get_db_connection, get_db_cursor, tenant_context
+from flask import Flask, Response, jsonify, render_template
+from logging_config import configure_logging, get_logger, setup_flask_logging
+from metrics import init_metrics, metrics_endpoint
+from security import init_security, rate_limit
+from validators import PaginationParams, build_pagination_response, validate_uuid
 
 app = Flask(__name__)
+app.config["JSON_AS_ASCII"] = False
+app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", os.urandom(32).hex())
+app.config["SECURITY_DB_LOGGING"] = os.environ.get("SECURITY_DB_LOGGING", "false").lower() == "true"
 
-DATABASE_URL = os.environ.get(
-    'DATABASE_URL',
-    'postgresql://m2x_user:m2x_password@db:5432/m2x_task_management'
-)
+init_security(app)
+init_metrics(app)
+configure_logging()
+logger = get_logger(__name__)
+setup_flask_logging(app)
 
-def get_db_connection():
-    return psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
+from swagger_config import init_swagger  # noqa: E402
 
-@app.route('/')
-def index():
-    return render_template('index.html')
+init_swagger(app)
 
-@app.route('/api/tenants')
-def get_tenants():
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute('SELECT * FROM tenants ORDER BY name')
-    tenants = cur.fetchall()
-    cur.close()
-    conn.close()
+from api import register_blueprints  # noqa: E402
+
+register_blueprints(app)
+
+
+@app.errorhandler(404)
+def not_found(error: Exception) -> tuple[Response, int]:
+    return jsonify({"error": "Resource not found"}), 404
+
+
+@app.errorhandler(500)
+def internal_error(error: Exception) -> tuple[Response, int]:
+    logger.error(f"Internal server error: {error}")
+    return jsonify({"error": "Internal server error"}), 500
+
+
+@app.errorhandler(psycopg2.Error)
+def database_error(error: psycopg2.Error) -> tuple[Response, int]:
+    logger.error(f"Database error: {error}")
+    return jsonify({"error": "Database error occurred"}), 500
+
+
+@app.route("/")
+def index() -> str:
+    return render_template("index.html")
+
+
+@app.route("/metrics")
+def metrics() -> tuple[Response, int]:
+    """
+    Prometheusメトリクスエンドポイント
+    ---
+    tags:
+      - Monitoring
+    responses:
+      200:
+        description: Prometheus形式のメトリクス
+        content:
+          text/plain:
+            schema:
+              type: string
+    """
+    return metrics_endpoint()
+
+
+@app.route("/health")
+@rate_limit(limit=120, window_seconds=60)
+def health_check() -> tuple[Response, int]:
+    """
+    ヘルスチェックエンドポイント
+    ---
+    tags:
+      - Health
+    responses:
+      200:
+        description: サービス正常
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HealthCheck'
+      503:
+        description: サービス異常
+    """
+    try:
+        with get_db_connection() as conn:
+            with get_db_cursor(conn) as cur:
+                cur.execute("SELECT 1")
+        return jsonify({"status": "healthy", "database": "connected"}), 200
+    except Exception as e:
+        logger.error(f"Health check failed: {e}")
+        return jsonify({"status": "unhealthy", "database": "disconnected"}), 503
+
+
+@app.route("/api/tenants")
+def get_tenants() -> Response:
+    """
+    テナント一覧取得
+    ---
+    tags:
+      - Tenants
+    responses:
+      200:
+        description: テナント一覧
+    """
+    with get_db_connection() as conn:
+        with get_db_cursor(conn) as cur:
+            cur.execute("SELECT * FROM tenants ORDER BY name")
+            tenants = cur.fetchall()
     return jsonify(tenants)
 
-@app.route('/api/tenants/<tenant_id>/equipments')
-def get_equipments(tenant_id):
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute('''
-        WITH RECURSIVE equipment_tree AS (
-            SELECT id, name, parent_equipment_id, manufacturer, description, 0 AS depth
-            FROM equipments
-            WHERE tenant_id = %s AND parent_equipment_id IS NULL
-            UNION ALL
-            SELECT e.id, e.name, e.parent_equipment_id, e.manufacturer, e.description, et.depth + 1
-            FROM equipments e
-            JOIN equipment_tree et ON e.parent_equipment_id = et.id
-        )
-        SELECT * FROM equipment_tree ORDER BY depth, name
-    ''', (tenant_id,))
-    equipments = cur.fetchall()
-    cur.close()
-    conn.close()
-    return jsonify(equipments)
 
-@app.route('/api/tenants/<tenant_id>/parts')
-def get_parts(tenant_id):
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute('''
-        SELECT p.*,
-               COALESCE(
-                   (SELECT STRING_AGG(e.name, ', ')
-                    FROM equipment_parts ep
-                    JOIN equipments e ON ep.equipment_id = e.id
-                    WHERE ep.part_id = p.id), ''
-               ) AS related_equipments
-        FROM parts p
-        WHERE p.tenant_id = %s
-        ORDER BY p.name
-    ''', (tenant_id,))
-    parts = cur.fetchall()
-    cur.close()
-    conn.close()
-    return jsonify(parts)
+@app.route("/api/tenants/<tenant_id>/equipments")
+@validate_uuid("tenant_id")
+def get_equipments(tenant_id: str) -> Response:
+    """
+    設備一覧取得（階層構造対応）
+    ---
+    tags:
+      - Equipments
+    """
+    pagination = PaginationParams.from_request(default_sort="name")
 
-@app.route('/api/tenants/<tenant_id>/tasks')
-def get_tasks(tenant_id):
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute('''
-        SELECT t.*, e.name AS equipment_name
-        FROM tasks t
-        JOIN equipments e ON t.equipment_id = e.id
-        WHERE t.tenant_id = %s
-        ORDER BY t.created_at DESC
-    ''', (tenant_id,))
-    tasks = cur.fetchall()
-    cur.close()
-    conn.close()
-    return jsonify(tasks)
+    with get_db_connection() as conn:
+        with tenant_context(conn, tenant_id) as cur:
+            cur.execute(
+                "SELECT COUNT(*) as count FROM equipments WHERE tenant_id = %s",
+                (tenant_id,),
+            )
+            total = cur.fetchone()["count"]
 
-@app.route('/api/tasks/<task_id>/details')
-def get_task_details(task_id):
-    conn = get_db_connection()
-    cur = conn.cursor()
+            cur.execute(
+                """
+                WITH RECURSIVE equipment_tree AS (
+                    SELECT id, name, parent_equipment_id, manufacturer, description, 0 AS depth
+                    FROM equipments
+                    WHERE tenant_id = %s AND parent_equipment_id IS NULL
+                    UNION ALL
+                    SELECT e.id, e.name, e.parent_equipment_id, e.manufacturer,
+                           e.description, et.depth + 1
+                    FROM equipments e
+                    JOIN equipment_tree et ON e.parent_equipment_id = et.id
+                    WHERE e.tenant_id = %s
+                )
+                SELECT * FROM equipment_tree
+                ORDER BY depth, name
+                LIMIT %s OFFSET %s
+            """,
+                (tenant_id, tenant_id, pagination.per_page, pagination.offset),
+            )
+            equipments = cur.fetchall()
 
-    # Task basic info
-    cur.execute('''
-        SELECT t.*, e.name AS equipment_name
-        FROM tasks t
-        JOIN equipments e ON t.equipment_id = e.id
-        WHERE t.id = %s
-    ''', (task_id,))
-    task = cur.fetchone()
+    return jsonify(build_pagination_response(equipments, pagination, total))
 
-    # Custom fields
-    cur.execute('''
-        SELECT cfd.field_name, cfd.field_type, cfv.value
-        FROM custom_field_values cfv
-        JOIN custom_field_definitions cfd ON cfv.field_definition_id = cfd.id
-        WHERE cfv.task_id = %s
-        ORDER BY cfd.display_order
-    ''', (task_id,))
-    custom_fields = cur.fetchall()
 
-    # Parts used
-    cur.execute('''
-        SELECT p.name, p.part_number, tp.quantity
-        FROM task_parts tp
-        JOIN parts p ON tp.part_id = p.id
-        WHERE tp.task_id = %s
-    ''', (task_id,))
-    parts = cur.fetchall()
+@app.route("/api/tenants/<tenant_id>/parts")
+@validate_uuid("tenant_id")
+def get_parts(tenant_id: str) -> Response:
+    """
+    部品一覧取得
+    ---
+    tags:
+      - Parts
+    """
+    from flask import request
 
-    # Comments
-    cur.execute('''
-        SELECT commented_by, comment, created_at
-        FROM task_comments
-        WHERE task_id = %s AND deleted_at IS NULL
-        ORDER BY created_at
-    ''', (task_id,))
-    comments = cur.fetchall()
+    pagination = PaginationParams.from_request(default_sort="name")
+    low_stock_only = request.args.get("low_stock", "").lower() == "true"
 
-    cur.close()
-    conn.close()
+    with get_db_connection() as conn:
+        with tenant_context(conn, tenant_id) as cur:
+            conditions = ["p.tenant_id = %s"]
+            params: list[Any] = [tenant_id]
 
-    return jsonify({
-        'task': task,
-        'custom_fields': custom_fields,
-        'parts': parts,
-        'comments': comments
-    })
+            if low_stock_only:
+                conditions.append("p.stock_quantity <= p.reorder_point")
 
-@app.route('/api/tenants/<tenant_id>/custom_fields')
-def get_custom_field_definitions(tenant_id):
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute('''
-        SELECT * FROM custom_field_definitions
-        WHERE tenant_id = %s
-        ORDER BY display_order
-    ''', (tenant_id,))
-    fields = cur.fetchall()
-    cur.close()
-    conn.close()
-    return jsonify(fields)
+            where_clause = "WHERE " + " AND ".join(conditions)
 
-@app.route('/api/tenants/<tenant_id>/stats')
-def get_stats(tenant_id):
-    conn = get_db_connection()
-    cur = conn.cursor()
+            cur.execute(
+                f"SELECT COUNT(*) as count FROM parts p {where_clause}",
+                params,
+            )
+            total = cur.fetchone()["count"]
 
-    # Tasks by status
-    cur.execute('''
-        SELECT status, COUNT(*) as count
-        FROM tasks
-        WHERE tenant_id = %s
-        GROUP BY status
-    ''', (tenant_id,))
-    tasks_by_status = cur.fetchall()
+            cur.execute(
+                f"""
+                SELECT p.*,
+                       COALESCE(
+                           (SELECT STRING_AGG(e.name, ', ')
+                            FROM equipment_parts ep
+                            JOIN equipments e ON ep.equipment_id = e.id
+                            WHERE ep.part_id = p.id), ''
+                       ) AS related_equipments
+                FROM parts p
+                {where_clause}
+                ORDER BY p.name
+                LIMIT %s OFFSET %s
+            """,
+                params + [pagination.per_page, pagination.offset],
+            )
+            parts = cur.fetchall()
 
-    # Tasks by equipment
-    cur.execute('''
-        SELECT e.name, COUNT(t.id) as count
-        FROM equipments e
-        LEFT JOIN tasks t ON e.id = t.equipment_id
-        WHERE e.tenant_id = %s
-        GROUP BY e.id, e.name
-        ORDER BY count DESC
-    ''', (tenant_id,))
-    tasks_by_equipment = cur.fetchall()
+    return jsonify(build_pagination_response(parts, pagination, total))
 
-    # Parts low stock
-    cur.execute('''
-        SELECT name, part_number, stock_quantity, reorder_point
-        FROM parts
-        WHERE tenant_id = %s AND stock_quantity <= reorder_point
-        ORDER BY stock_quantity
-    ''', (tenant_id,))
-    low_stock_parts = cur.fetchall()
 
-    cur.close()
-    conn.close()
+DEBUG_MODE = os.environ.get("FLASK_DEBUG", "false").lower() == "true"
 
-    return jsonify({
-        'tasks_by_status': tasks_by_status,
-        'tasks_by_equipment': tasks_by_equipment,
-        'low_stock_parts': low_stock_parts
-    })
+if DEBUG_MODE:
+    logger.warning("DEBUG MODE IS ENABLED - DO NOT USE IN PRODUCTION")
 
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000, debug=DEBUG_MODE)  # nosec B104

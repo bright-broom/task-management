@@ -1,0 +1,45 @@
+# 本番環境用 Dockerfile（マルチステージビルド）
+# ============================================================================
+
+# Stage 1: Builder
+FROM python:3.11-slim as builder
+
+WORKDIR /app
+
+# 依存関係のインストール（キャッシュ効率化のため先にコピー）
+COPY requirements.txt .
+RUN pip install --no-cache-dir --user -r requirements.txt
+
+# Stage 2: Production
+FROM python:3.11-slim as production
+
+# セキュリティ: 非rootユーザーで実行
+RUN groupadd -r m2x && useradd -r -g m2x m2x
+
+WORKDIR /app
+
+# 必要なシステムパッケージのみインストール
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Pythonパッケージをコピー
+COPY --from=builder /root/.local /home/m2x/.local
+ENV PATH=/home/m2x/.local/bin:$PATH
+
+# アプリケーションコードをコピー
+COPY --chown=m2x:m2x . .
+
+# 非rootユーザーに切り替え
+USER m2x
+
+# 環境変数
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    FLASK_ENV=production
+
+# ヘルスチェック用ポート
+EXPOSE 8080
+
+# Gunicorn で本番実行（ワーカー数は環境に応じて調整）
+CMD ["python", "-m", "gunicorn", "--bind", "0.0.0.0:8080", "--workers", "2", "--threads", "4", "--timeout", "60", "--access-logfile", "-", "--error-logfile", "-", "app:app"]

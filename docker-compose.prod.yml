@@ -1,0 +1,71 @@
+version: '3.8'
+
+# 本番環境用 Docker Compose 設定
+# 使用方法: docker compose -f docker-compose.prod.yml up -d
+
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: m2x-db-prod
+    restart: always
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-m2x_task_management}
+      POSTGRES_USER: ${POSTGRES_USER:-m2x_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./db/migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-m2x_user} -d ${POSTGRES_DB:-m2x_task_management}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - m2x-network
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile.prod
+    container_name: m2x-web-prod
+    restart: always
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-m2x_user}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-m2x_task_management}
+      SECRET_KEY: ${SECRET_KEY:?SECRET_KEY is required}
+      FLASK_DEBUG: "false"
+      ENVIRONMENT: production
+      LOG_LEVEL: INFO
+      LOG_FORMAT: json
+      POOL_MIN_CONNECTIONS: 5
+      POOL_MAX_CONNECTIONS: 20
+    ports:
+      - "${WEB_PORT:-8080}:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - m2x-network
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+
+networks:
+  m2x-network:
+    driver: bridge
+
+volumes:
+  postgres_data:

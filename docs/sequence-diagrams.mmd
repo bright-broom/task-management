@@ -1,0 +1,196 @@
+%% M2X Task Management System - シーケンス図
+%% ============================================================================
+
+%% ============================================================================
+%% 1. タスク作成フロー
+%% ============================================================================
+
+sequenceDiagram
+    participant U as User
+    participant W as Web UI
+    participant A as API Server
+    participant DB as PostgreSQL
+
+    Note over U,DB: タスク作成フロー
+
+    U->>W: タスク作成フォーム入力
+    W->>A: POST /api/tenants/{tenant_id}/tasks
+    A->>A: UUID・必須項目バリデーション
+    A->>DB: SET app.current_tenant_id (RLS)
+    A->>DB: SELECT FROM equipments (設備存在確認)
+    alt 設備が存在しない
+        DB-->>A: 0 rows
+        A-->>W: 404 Equipment not found
+        W-->>U: エラー表示
+    else 設備が存在する
+        A->>DB: INSERT INTO tasks
+        DB-->>A: 新規タスクデータ
+        A->>DB: RESET app.current_tenant_id
+        A-->>W: 201 Created + タスクデータ
+        W-->>U: 成功メッセージ
+    end
+
+---
+
+%% ============================================================================
+%% 2. 認証フロー（ログイン）
+%% ============================================================================
+
+sequenceDiagram
+    participant U as User
+    participant W as Web UI
+    participant A as API Server
+    participant DB as PostgreSQL
+
+    Note over U,DB: JWT認証フロー
+
+    U->>W: メール・パスワード入力
+    W->>A: POST /api/auth/login
+    A->>A: 入力バリデーション
+    A->>A: レート制限チェック (10回/分)
+
+    alt レート制限超過
+        A-->>W: 429 Too Many Requests
+        W-->>U: 「しばらく待ってください」
+    else レート制限OK
+        A->>DB: SELECT FROM users WHERE email = ?
+        alt ユーザーが存在しない
+            A-->>W: 401 Invalid credentials
+        else ユーザー存在
+            A->>A: bcrypt.verify(password, hash)
+            alt パスワード不一致
+                A->>DB: UPDATE users SET failed_login_count++
+                A-->>W: 401 Invalid credentials
+            else パスワード一致
+                A->>DB: UPDATE users SET failed_login_count=0
+                A->>A: JWT生成 (access + refresh)
+                A-->>W: 200 OK + tokens
+                W->>W: トークン保存
+                W-->>U: ダッシュボードへ遷移
+            end
+        end
+    end
+
+---
+
+%% ============================================================================
+%% 3. タスク詳細取得フロー（カスタムフィールド・コメント含む）
+%% ============================================================================
+
+sequenceDiagram
+    participant U as User
+    participant W as Web UI
+    participant A as API Server
+    participant DB as PostgreSQL
+
+    Note over U,DB: タスク詳細取得（EAVパターン）
+
+    U->>W: タスク詳細クリック
+    W->>A: GET /api/tasks/{task_id}/details
+    A->>DB: SELECT FROM tasks JOIN equipments
+    DB-->>A: タスク基本情報
+
+    alt タスクが存在しない
+        A-->>W: 404 Not Found
+    else タスク存在
+        A->>DB: SET app.current_tenant_id (RLS)
+
+        par 並列クエリ
+            A->>DB: SELECT FROM custom_field_values<br/>JOIN custom_field_definitions
+            DB-->>A: カスタムフィールド値
+        and
+            A->>DB: SELECT FROM task_parts JOIN parts
+            DB-->>A: 使用部品リスト
+        and
+            A->>DB: SELECT FROM task_comments<br/>WHERE deleted_at IS NULL
+            DB-->>A: コメント履歴
+        end
+
+        A->>DB: RESET app.current_tenant_id
+        A-->>W: 200 OK + 統合データ
+        W-->>U: 詳細画面表示
+    end
+
+---
+
+%% ============================================================================
+%% 4. マルチテナント データ分離フロー
+%% ============================================================================
+
+sequenceDiagram
+    participant U as User (Tenant A)
+    participant A as API Server
+    participant DB as PostgreSQL
+
+    Note over U,DB: Row Level Security による分離
+
+    U->>A: GET /api/tenants/A/tasks
+    A->>A: tenant_id 検証
+    A->>DB: SET app.current_tenant_id = 'A'
+    Note right of DB: RLSポリシーがフィルタリング
+    A->>DB: SELECT * FROM tasks
+    Note right of DB: WHERE tenant_id = 'A' 自動適用
+    DB-->>A: Tenant A のタスクのみ
+    A->>DB: RESET app.current_tenant_id
+    A-->>U: 200 OK + Tenant A データ
+
+    Note over U,DB: 他テナントのデータはアクセス不可
+
+---
+
+%% ============================================================================
+%% 5. 楽観的ロック（競合検出）フロー
+%% ============================================================================
+
+sequenceDiagram
+    participant U1 as User 1
+    participant U2 as User 2
+    participant A as API Server
+    participant DB as PostgreSQL
+
+    Note over U1,DB: 楽観的ロックによる競合検出
+
+    U1->>A: GET /api/tasks/{id} (version=1)
+    A-->>U1: タスクデータ (version=1)
+
+    U2->>A: GET /api/tasks/{id} (version=1)
+    A-->>U2: タスクデータ (version=1)
+
+    U1->>A: PATCH /api/tasks/{id}<br/>{title: "New", version: 1}
+    A->>DB: UPDATE tasks SET ... WHERE id=? AND version=1
+    DB-->>A: 1 row updated (version=2)
+    A-->>U1: 200 OK (version=2)
+
+    U2->>A: PATCH /api/tasks/{id}<br/>{title: "Other", version: 1}
+    A->>DB: UPDATE tasks SET ... WHERE id=? AND version=1
+    DB-->>A: 0 rows updated
+    A-->>U2: 409 Conflict<br/>"Record was modified"
+
+---
+
+%% ============================================================================
+%% 6. コメント追加フロー（課題2）
+%% ============================================================================
+
+sequenceDiagram
+    participant U as User
+    participant W as Web UI
+    participant A as API Server
+    participant DB as PostgreSQL
+
+    Note over U,DB: タスクコメント追加（課題2）
+
+    U->>W: コメント入力・送信
+    W->>A: POST /api/tasks/{task_id}/comments
+    A->>A: 入力サニタイズ
+    A->>DB: SELECT tenant_id FROM tasks WHERE id = ?
+
+    alt タスクが存在しない
+        A-->>W: 404 Task not found
+    else タスク存在
+        A->>DB: INSERT INTO task_comments<br/>(tenant_id, task_id, commented_by, comment)
+        DB-->>A: 新規コメントデータ
+        A-->>W: 201 Created
+        W->>W: コメントリスト更新
+        W-->>U: 「コメントを追加しました」
+    end

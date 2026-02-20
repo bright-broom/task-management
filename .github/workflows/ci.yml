@@ -1,0 +1,177 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master, feature/*]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  test:
+    name: Test & Coverage
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: m2x_user
+          POSTGRES_PASSWORD: m2x_password
+          POSTGRES_DB: m2x_task_management
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r web/requirements.txt
+          pip install pytest pytest-cov
+
+      - name: Run database migrations
+        env:
+          PGHOST: localhost
+          PGUSER: m2x_user
+          PGPASSWORD: m2x_password
+          PGDATABASE: m2x_task_management
+        run: |
+          psql -f db/migrations/001_create_tables.sql
+          psql -f db/migrations/002_seed_data.sql
+
+      - name: Run tests with coverage
+        env:
+          TEST_DATABASE_URL: postgresql://m2x_user:m2x_password@localhost:5432/m2x_task_management
+        working-directory: web
+        run: |
+          pytest tests/ -v --cov=. --cov-report=xml --cov-report=term-missing
+
+      - name: Upload coverage report
+        uses: codecov/codecov-action@v4
+        if: always()
+        with:
+          files: web/coverage.xml
+          flags: unittests
+          fail_ci_if_error: false
+
+  lint:
+    name: Lint & Format
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: 'pip'
+
+      - name: Install linting tools
+        run: |
+          pip install black isort flake8
+
+      - name: Check formatting with Black
+        run: black --check --diff web/
+
+      - name: Check imports with isort
+        run: isort --check-only --diff --profile black web/
+
+      - name: Lint with flake8
+        run: flake8 web/ --max-line-length=100 --extend-ignore=E203,W503
+
+  mypy:
+    name: Type Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install -r web/requirements.txt
+          pip install mypy types-psycopg2 types-Flask
+
+      - name: Run mypy type checking
+        run: mypy web/app.py web/security.py web/logging_config.py --config-file=pyproject.toml
+
+  security:
+    name: Security Scan
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: 'pip'
+
+      - name: Install security tools
+        run: |
+          pip install bandit safety
+
+      - name: Install bandit toml support
+        run: pip install bandit[toml]
+
+      - name: Run Bandit security scan
+        run: |
+          bandit -r web/ -ll -ii -x web/tests/ -c pyproject.toml --format json --output bandit-report.json || true
+          bandit -r web/ -ll -ii -x web/tests/ -c pyproject.toml
+
+      - name: Check dependencies for vulnerabilities
+        run: |
+          safety check -r web/requirements.txt --full-report || true
+
+      - name: Upload Bandit report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bandit-security-report
+          path: bandit-report.json
+
+  docker:
+    name: Docker Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build and start services
+        run: |
+          docker compose up -d --build
+          sleep 15
+
+      - name: Health check
+        run: |
+          curl -f http://localhost:8080/ || exit 1
+          curl -f http://localhost:8080/api/tenants || exit 1
+          curl -f http://localhost:8080/health || exit 1
+
+      - name: Run API smoke tests
+        run: |
+          # Test pagination
+          curl -f "http://localhost:8080/api/tenants/11111111-1111-1111-1111-111111111111/tasks?page=1&per_page=5" || exit 1
+          # Test stats endpoint
+          curl -f "http://localhost:8080/api/tenants/11111111-1111-1111-1111-111111111111/stats" || exit 1
+
+      - name: Stop services
+        run: docker compose down

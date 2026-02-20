@@ -1,0 +1,90 @@
+# Project configuration for M2X Task Management System
+
+[project]
+name = "m2x-task-management"
+version = "1.0.0"
+description = "Factory task management system with multi-tenant support"
+requires-python = ">=3.11"
+
+[tool.black]
+line-length = 100
+target-version = ['py311']
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  # defaults
+  \.git
+  | \.mypy_cache
+  | \.venv
+  | build
+  | dist
+)/
+'''
+
+[tool.isort]
+profile = "black"
+line_length = 100
+skip_gitignore = true
+
+[tool.bandit]
+exclude_dirs = ["tests", ".venv"]
+# B101: Skip assert warnings in tests
+# B104: Binding to all interfaces is required for Docker containers
+# B608: False positive - we use parameterized queries with dynamic WHERE clauses
+skips = ["B101", "B104", "B608"]
+
+[tool.bandit.assert_used]
+skips = ["*/tests/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["web/tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"
+
+[tool.coverage.run]
+source = ["web"]
+omit = ["web/tests/*", "web/__pycache__/*"]
+branch = true
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+]
+fail_under = 70
+show_missing = true
+
+# ============================================================================
+# MyPy - Static Type Checking
+# ============================================================================
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = false  # Flask's jsonify returns Any due to incomplete stubs
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+disallow_untyped_decorators = false
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+warn_unreachable = true
+strict_equality = true
+extra_checks = true
+show_error_codes = true
+show_column_numbers = true
+
+[[tool.mypy.overrides]]
+module = [
+    "psycopg2.*",
+    "bcrypt.*",
+    "flask.*",
+    "werkzeug.*",
+]
+ignore_missing_imports = true
