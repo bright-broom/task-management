@@ -41,8 +41,6 @@ from typing import Any, Callable, Generator, TypeVar
 
 import psycopg2
 from flask import Flask, Response, g, jsonify, render_template, request
-from psycopg2 import pool
-from psycopg2.extras import RealDictCursor
 
 # 構造化ログ設定
 from logging_config import (
@@ -50,6 +48,8 @@ from logging_config import (
     get_logger,
     setup_flask_logging,
 )
+from psycopg2 import pool
+from psycopg2.extras import RealDictCursor
 
 # セキュリティモジュール
 from security import (
