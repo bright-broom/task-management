@@ -382,7 +382,5 @@ class TestValidators:
 
     def test_pagination_invalid_sort_order(self, client):
         """Test pagination with invalid sort order."""
-        response = client.get(
-            f"/api/tenants/{TEST_TENANT_ID}/tasks?sort_order=invalid"
-        )
+        response = client.get(f"/api/tenants/{TEST_TENANT_ID}/tasks?sort_order=invalid")
         assert response.status_code == 200

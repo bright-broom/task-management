@@ -22,7 +22,7 @@ class TestMetricsModule:
 
     def test_increment_counter_with_labels(self):
         """Test counter increment with labels."""
-        from metrics import increment_counter, _metrics
+        from metrics import _metrics, increment_counter
 
         increment_counter("http_requests", {"method": "GET", "status": "200"})
         key = "http_requests_{'method': 'GET', 'status': '200'}"
@@ -201,6 +201,7 @@ class TestAdditionalCoverage:
         """Test that database errors are handled properly."""
         # This tests the error handler exists
         import psycopg2
+
         assert hasattr(psycopg2, "Error")
 
     def test_metrics_track_request(self):

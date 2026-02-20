@@ -23,7 +23,6 @@ import os
 from typing import Any
 
 import psycopg2
-
 from database import get_db_connection, get_db_cursor, tenant_context
 from flask import Flask, Response, jsonify, render_template
 from logging_config import configure_logging, get_logger, setup_flask_logging

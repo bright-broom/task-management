@@ -41,7 +41,9 @@ def increment_counter(name: str, labels: dict[str, str] | None = None) -> None:
 def observe_histogram(name: str, value: float) -> None:
     _metrics["http_request_duration_seconds"].append(value)
     if len(_metrics["http_request_duration_seconds"]) > 1000:
-        _metrics["http_request_duration_seconds"] = _metrics["http_request_duration_seconds"][-1000:]
+        _metrics["http_request_duration_seconds"] = _metrics["http_request_duration_seconds"][
+            -1000:
+        ]
 
 
 def set_gauge(name: str, value: float) -> None:
@@ -62,7 +64,11 @@ def track_request_metrics(f: F) -> F:
             status = result[1] if isinstance(result, tuple) else 200
             increment_counter(
                 "http_requests",
-                {"method": request.method, "endpoint": request.endpoint or "unknown", "status": str(status)},
+                {
+                    "method": request.method,
+                    "endpoint": request.endpoint or "unknown",
+                    "status": str(status),
+                },
             )
             return result
         finally:

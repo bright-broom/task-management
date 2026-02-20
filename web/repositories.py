@@ -20,8 +20,7 @@ class BaseRepository(ABC, Generic[T]):
 
     @property
     @abstractmethod
-    def table_name(self) -> str:
-        ...
+    def table_name(self) -> str: ...
 
     def _execute_query(
         self,
@@ -177,7 +176,15 @@ class TaskRepository(BaseRepository):
         set_parts = []
         params: list[Any] = []
 
-        for field in ["title", "description", "status", "priority", "category", "assigned_to", "due_date"]:
+        for field in [
+            "title",
+            "description",
+            "status",
+            "priority",
+            "category",
+            "assigned_to",
+            "due_date",
+        ]:
             if field in data and data[field] is not None:
                 set_parts.append(f"{field} = %s")
                 params.append(data[field])
