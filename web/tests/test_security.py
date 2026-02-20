@@ -63,9 +63,7 @@ class TestInputValidation:
         """Test that SQL injection attempts are handled safely."""
         # Try SQL injection in task filter
         malicious_status = "'; DROP TABLE tasks; --"
-        response = client.get(
-            f"/api/tenants/{TEST_TENANT_ID}/tasks?status={malicious_status}"
-        )
+        response = client.get(f"/api/tenants/{TEST_TENANT_ID}/tasks?status={malicious_status}")
         # Should not cause server error, just return empty or error
         assert response.status_code in [200, 400]
 
@@ -129,9 +127,7 @@ class TestErrorHandling:
     def test_404_for_nonexistent_task(self, client):
         """Test 404 response for non-existent task."""
         fake_task_id = "99999999-9999-9999-9999-999999999999"
-        response = client.get(
-            f"/api/tenants/{TEST_TENANT_ID}/tasks/{fake_task_id}"
-        )
+        response = client.get(f"/api/tenants/{TEST_TENANT_ID}/tasks/{fake_task_id}")
         assert response.status_code == 404
 
     def test_malformed_json_rejected(self, client):
@@ -160,16 +156,12 @@ class TestTaskStatusValidation:
         """Test that valid task statuses are accepted."""
         valid_statuses = ["pending", "in_progress", "completed"]
         for status in valid_statuses:
-            response = client.get(
-                f"/api/tenants/{TEST_TENANT_ID}/tasks?status={status}"
-            )
+            response = client.get(f"/api/tenants/{TEST_TENANT_ID}/tasks?status={status}")
             assert response.status_code == 200
 
     def test_invalid_status_filtered(self, client):
         """Test that invalid statuses don't cause errors."""
-        response = client.get(
-            f"/api/tenants/{TEST_TENANT_ID}/tasks?status=invalid_status"
-        )
+        response = client.get(f"/api/tenants/{TEST_TENANT_ID}/tasks?status=invalid_status")
         # Should either ignore invalid status or return validation error
         assert response.status_code in [200, 400]
 
@@ -207,8 +199,9 @@ class TestLoggingConfig:
 
     def test_get_logger_returns_logger(self):
         """Test that get_logger returns a logger instance."""
-        from logging_config import get_logger
         import logging
+
+        from logging_config import get_logger
 
         logger = get_logger("test.module")
         assert isinstance(logger, logging.Logger)
@@ -217,9 +210,9 @@ class TestLoggingConfig:
     def test_set_request_context(self):
         """Test setting and getting request context."""
         from logging_config import (
-            set_request_context,
-            get_request_id,
             clear_request_context,
+            get_request_id,
+            set_request_context,
         )
 
         # Set context
@@ -348,7 +341,7 @@ class TestSecurityModule:
 
         xss_inputs = [
             '<script>alert("xss")</script>',
-            'javascript:void(0)',
+            "javascript:void(0)",
             '<img onerror="alert(1)">',
             '<a href="javascript:alert(1)">',
         ]
