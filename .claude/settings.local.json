@@ -30,7 +30,9 @@
       "Bash(mypy:*)",
       "Bash(bandit:*)",
       "Bash(git stash:*)",
-      "Bash(git pull:*)"
+      "Bash(git pull:*)",
+      "Bash(python:*)",
+      "Bash(DATABASE_URL=\"postgresql://m2x_user:m2x_password@localhost:5432/m2x_db\" python -m pytest:*)"
     ]
   }
 }
