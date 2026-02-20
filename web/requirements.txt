@@ -1,6 +1,7 @@
 # Core dependencies
 flask==3.0.0
 psycopg2-binary==2.9.9
+pydantic==2.6.0
 
 # API Documentation
 flasgger==0.9.7.1
@@ -8,6 +9,9 @@ flasgger==0.9.7.1
 # Security dependencies
 PyJWT==2.8.0
 bcrypt==4.1.2
+
+# Production server
+gunicorn==21.2.0
 
 # Development/Testing dependencies (optional)
 # pytest==8.0.0
