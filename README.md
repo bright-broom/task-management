@@ -327,21 +327,36 @@ Assembly Line A          (parent_equipment_id = NULL)
 .
 ├── README.md                          # 本ドキュメント
 ├── docker-compose.yml                 # Docker Compose 設定
-├── db/
+├── pyproject.toml                     # Python プロジェクト設定
+│
+├── db/                                # 【課題の解答】データベース設計
 │   ├── migrations/
 │   │   ├── 001_create_tables.sql      # テーブル定義（課題1 + 課題2）
 │   │   └── 002_seed_data.sql          # サンプルデータ
 │   └── queries/
-│       └── sample_queries.sql         # 集計クエリ例
-├── web/                               # Web UI（Flask）
-│   ├── Dockerfile
-│   ├── app.py                         # APIサーバー
-│   ├── requirements.txt
-│   └── templates/
-│       └── index.html                 # フロントエンド
-└── docs/
-    └── er-diagram.mmd                 # ER図（Mermaid形式）
+│       └── sample_queries.sql         # 集計クエリ例（10種類）
+│
+├── docs/
+│   └── er-diagram.mmd                 # ER図（Mermaid形式・詳細版）
+│
+├── web/                               # Web UI（データ確認用）
+│   ├── api/                           # REST API エンドポイント
+│   │   ├── auth.py                    # 認証API
+│   │   └── tasks.py                   # タスクAPI
+│   ├── core/                          # 設定・例外
+│   ├── models/                        # Pydantic スキーマ
+│   ├── repositories/                  # データアクセス層
+│   ├── static/js/app.js               # フロントエンド（Vanilla JS）
+│   ├── templates/index.html           # HTMLテンプレート
+│   ├── tests/                         # テストスイート
+│   ├── app.py                         # Flaskアプリケーション
+│   └── requirements.txt               # Python依存関係
+│
+└── .github/workflows/ci.yml           # CI/CD設定
 ```
+
+> **Note:** `web/` ディレクトリは課題の解答を視覚的に確認するためのUIです。
+> 課題の本質的な解答は `db/` と `docs/er-diagram.mmd` に含まれています。
 
 ---
 
