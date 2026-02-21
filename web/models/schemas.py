@@ -251,3 +251,33 @@ class HealthCheckResponse(BaseSchema):
 
     status: str
     database: str
+
+
+class TenantResponse(BaseSchema):
+    """Schema for tenant response."""
+
+    id: UUID
+    name: str
+    description: str | None = None
+
+
+class ErrorResponse(BaseSchema):
+    """Schema for error response."""
+
+    error: str
+    code: str | None = None
+    details: dict[str, Any] | None = None
+
+
+# ============================================================================
+# Backward Compatibility Aliases
+# ============================================================================
+
+# Enum aliases for backward compatibility
+StatusEnum = TaskStatus
+PriorityEnum = TaskPriority
+CategoryEnum = TaskCategory
+
+# Schema aliases for backward compatibility
+LoginResponse = TokenResponse
+TokenRefreshRequest = RefreshRequest

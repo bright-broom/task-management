@@ -16,9 +16,8 @@ from dataclasses import dataclass
 from functools import wraps
 from typing import Any, Callable, TypeVar
 
-from flask import jsonify, request
-
 from core.exceptions import OptimisticLockError
+from flask import jsonify, request
 
 F = TypeVar("F", bound=Callable[..., Any])
 

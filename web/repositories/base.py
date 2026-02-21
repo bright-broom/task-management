@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any, Generic, TypeVar
+from typing import Any, Generic, Literal, TypeVar, overload
 
 from infrastructure.database import get_db_connection, get_db_cursor, tenant_context
 
@@ -45,6 +45,26 @@ class BaseRepository(ABC, Generic[T]):
         """Execute a SELECT query and return the first result."""
         results = self._execute_query(query, params, tenant_id)
         return results[0] if results else None
+
+    @overload
+    def _execute_write(
+        self,
+        query: str,
+        params: tuple[Any, ...] | None = None,
+        tenant_id: str | None = None,
+        *,
+        return_result: Literal[True],
+    ) -> dict[str, Any]: ...
+
+    @overload
+    def _execute_write(
+        self,
+        query: str,
+        params: tuple[Any, ...] | None = None,
+        tenant_id: str | None = None,
+        *,
+        return_result: Literal[False] = ...,
+    ) -> int: ...
 
     def _execute_write(
         self,
