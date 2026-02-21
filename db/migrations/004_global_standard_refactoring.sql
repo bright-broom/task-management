@@ -507,6 +507,10 @@ ALTER TABLE custom_field_definitions
 CREATE INDEX IF NOT EXISTS idx_custom_field_definitions_active ON custom_field_definitions(tenant_id)
     WHERE deleted_at IS NULL;
 
+-- EAVパターンのフィールド名検索を高速化
+CREATE INDEX IF NOT EXISTS idx_custom_field_definitions_lookup ON custom_field_definitions(tenant_id, field_name)
+    WHERE deleted_at IS NULL;
+
 COMMENT ON COLUMN custom_field_definitions.validation_rules IS 'バリデーションルール（JSON Schema形式）';
 COMMENT ON COLUMN custom_field_definitions.placeholder IS '入力プレースホルダー';
 
