@@ -796,10 +796,11 @@
         if (!container) return;
 
         try {
-            const equipments = await fetchApi(
+            const response = await fetchApi(
                 CONFIG.api.equipments(state.currentTenant),
                 { loadingKey: "equipments" }
             );
+            const equipments = response.items || response;
 
             container.innerHTML = equipments.length > 0
                 ? equipments.map(Templates.equipmentItem).join("")
