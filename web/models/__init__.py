@@ -4,7 +4,9 @@ from models.schemas import (
     CategoryEnum,
     CommentCreate,
     CommentResponse,
+    EquipmentResponse,
     ErrorResponse,
+    HealthCheckResponse,
     LoginRequest,
     LoginResponse,
     PaginatedResponse,
@@ -40,7 +42,9 @@ __all__ = [
     # Other models
     "TenantResponse",
     "PartResponse",
+    "EquipmentResponse",
     "ErrorResponse",
+    "HealthCheckResponse",
     "PaginationMeta",
     "PaginatedResponse",
 ]
