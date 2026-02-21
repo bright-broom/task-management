@@ -185,6 +185,129 @@ class TestTenantIsolation:
         task_ids_2 = {item["id"] for item in data2["items"]}
         assert task_ids_1.isdisjoint(task_ids_2)
 
+    def test_tenant_cannot_access_other_tenant_equipments(self, client):
+        """Test that equipments are isolated by tenant."""
+        # Get equipments for tenant 1
+        response1 = client.get(f"/api/tenants/{TEST_TENANT_ID}/equipments")
+        data1 = json.loads(response1.data)
+
+        # Get equipments for tenant 2
+        tenant2_id = "22222222-2222-2222-2222-222222222222"
+        response2 = client.get(f"/api/tenants/{tenant2_id}/equipments")
+        data2 = json.loads(response2.data)
+
+        # Verify no overlap in equipment IDs
+        equip_ids_1 = {item["id"] for item in data1.get("items", data1)}
+        equip_ids_2 = {item["id"] for item in data2.get("items", data2)}
+        assert equip_ids_1.isdisjoint(equip_ids_2)
+
+    def test_tenant_cannot_access_other_tenant_parts(self, client):
+        """Test that parts are isolated by tenant."""
+        # Get parts for tenant 1
+        response1 = client.get(f"/api/tenants/{TEST_TENANT_ID}/parts")
+        data1 = json.loads(response1.data)
+
+        # Get parts for tenant 2
+        tenant2_id = "22222222-2222-2222-2222-222222222222"
+        response2 = client.get(f"/api/tenants/{tenant2_id}/parts")
+        data2 = json.loads(response2.data)
+
+        # Verify no overlap in part IDs
+        part_ids_1 = {item["id"] for item in data1.get("items", data1)}
+        part_ids_2 = {item["id"] for item in data2.get("items", data2)}
+        assert part_ids_1.isdisjoint(part_ids_2)
+
+    def test_task_tenant_id_matches_url(self, client, db_cursor):
+        """Test that returned tasks always match the URL tenant_id."""
+        response = client.get(f"/api/tenants/{TEST_TENANT_ID}/tasks")
+        data = json.loads(response.data)
+
+        for task in data["items"]:
+            assert task.get("tenant_id") == TEST_TENANT_ID or "tenant_id" not in task
+
+    def test_cannot_create_task_for_other_tenant_equipment(self, client, db_cursor):
+        """Test that creating task with equipment from another tenant fails."""
+        # Get equipment from tenant 2
+        db_cursor.execute("""
+            SELECT id FROM equipments
+            WHERE tenant_id = '22222222-2222-2222-2222-222222222222'
+            AND deleted_at IS NULL
+            LIMIT 1
+        """)
+        result = db_cursor.fetchone()
+
+        if result:
+            other_tenant_equipment_id = str(result["id"])
+            # Try to create task in tenant 1 with tenant 2's equipment
+            response = client.post(
+                f"/api/tenants/{TEST_TENANT_ID}/tasks",
+                json={
+                    "title": "Cross-tenant test",
+                    "equipment_id": other_tenant_equipment_id
+                },
+                content_type="application/json",
+            )
+            # Should fail - either 400 or 404
+            assert response.status_code in [400, 404, 403]
+
+
+class TestCrossTenantAPIProtection:
+    """Test API protection against cross-tenant access attempts."""
+
+    def test_task_detail_tenant_mismatch(self, client, db_cursor):
+        """Test accessing task detail with wrong tenant ID returns 404."""
+        # Get a task from tenant 1
+        db_cursor.execute("""
+            SELECT id FROM tasks
+            WHERE tenant_id = %s AND deleted_at IS NULL
+            LIMIT 1
+        """, (TEST_TENANT_ID,))
+        result = db_cursor.fetchone()
+
+        if result:
+            task_id = str(result["id"])
+            # Try to access it via tenant 2's URL
+            tenant2_id = "22222222-2222-2222-2222-222222222222"
+            response = client.get(f"/api/tenants/{tenant2_id}/tasks/{task_id}")
+            # Should return 404 (not found in this tenant)
+            assert response.status_code == 404
+
+    def test_equipment_detail_tenant_mismatch(self, client, db_cursor):
+        """Test accessing equipment detail with wrong tenant ID returns 404."""
+        # Get an equipment from tenant 1
+        db_cursor.execute("""
+            SELECT id FROM equipments
+            WHERE tenant_id = %s AND deleted_at IS NULL
+            LIMIT 1
+        """, (TEST_TENANT_ID,))
+        result = db_cursor.fetchone()
+
+        if result:
+            equipment_id = str(result["id"])
+            # Try to access it via tenant 2's URL
+            tenant2_id = "22222222-2222-2222-2222-222222222222"
+            response = client.get(f"/api/tenants/{tenant2_id}/equipments/{equipment_id}")
+            # Should return 404 (not found in this tenant)
+            assert response.status_code == 404
+
+    def test_part_detail_tenant_mismatch(self, client, db_cursor):
+        """Test accessing part detail with wrong tenant ID returns 404."""
+        # Get a part from tenant 1
+        db_cursor.execute("""
+            SELECT id FROM parts
+            WHERE tenant_id = %s AND deleted_at IS NULL
+            LIMIT 1
+        """, (TEST_TENANT_ID,))
+        result = db_cursor.fetchone()
+
+        if result:
+            part_id = str(result["id"])
+            # Try to access it via tenant 2's URL
+            tenant2_id = "22222222-2222-2222-2222-222222222222"
+            response = client.get(f"/api/tenants/{tenant2_id}/parts/{part_id}")
+            # Should return 404 (not found in this tenant)
+            assert response.status_code == 404
+
 
 class TestLoggingConfig:
     """Test logging configuration module."""

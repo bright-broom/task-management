@@ -77,6 +77,7 @@ CREATE TABLE equipments (
 
 CREATE INDEX idx_equipments_tenant ON equipments(tenant_id);
 CREATE INDEX idx_equipments_parent ON equipments(tenant_id, parent_equipment_id);
+CREATE INDEX idx_equipments_name ON equipments(tenant_id, name);
 
 COMMENT ON TABLE equipments IS '設備マスタ。親子階層構造に対応（自己参照）';
 COMMENT ON COLUMN equipments.parent_equipment_id IS '親設備ID。NULLの場合はトップレベル設備';

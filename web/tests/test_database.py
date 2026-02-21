@@ -284,6 +284,150 @@ class TestEquipmentHierarchy:
         assert 0 in depths, "Should have root level equipment"
 
 
+class TestOptimisticLocking:
+    """Test optimistic locking (version column) implementation."""
+
+    def test_version_column_exists_on_major_tables(self, db_cursor):
+        """Verify version column exists on tables with optimistic locking."""
+        tables_with_version = [
+            "tenants",
+            "equipments",
+            "parts",
+            "tasks",
+            "users",
+        ]
+
+        for table in tables_with_version:
+            db_cursor.execute("""
+                SELECT column_name FROM information_schema.columns
+                WHERE table_name = %s AND column_name = 'version'
+            """, (table,))
+            result = db_cursor.fetchone()
+            assert result is not None, f"Table '{table}' should have version column"
+
+    def test_version_starts_at_one(self, db_cursor):
+        """Verify new records start with version = 1."""
+        db_cursor.execute("""
+            SELECT version FROM tasks
+            WHERE tenant_id = %s
+            LIMIT 1
+        """, (TEST_TENANT_ID,))
+        result = db_cursor.fetchone()
+        if result:
+            assert result["version"] >= 1, "Version should be at least 1"
+
+    def test_version_increments_on_update(self, db_cursor):
+        """Verify version increments on update."""
+        # Get a task
+        db_cursor.execute("""
+            SELECT id, version FROM tasks
+            WHERE tenant_id = %s
+            LIMIT 1
+        """, (TEST_TENANT_ID,))
+        task = db_cursor.fetchone()
+
+        if task:
+            old_version = task["version"]
+            # Update the task
+            db_cursor.execute("""
+                UPDATE tasks SET title = title || ' (updated)'
+                WHERE id = %s
+            """, (task["id"],))
+            # Check new version
+            db_cursor.execute("SELECT version FROM tasks WHERE id = %s", (task["id"],))
+            new_task = db_cursor.fetchone()
+            assert new_task["version"] == old_version + 1, "Version should increment on update"
+
+    def test_concurrent_update_conflict_detected(self, db_cursor, db_connection):
+        """Test that concurrent updates with wrong version are rejected."""
+        # Get a task
+        db_cursor.execute("""
+            SELECT id, version FROM tasks
+            WHERE tenant_id = %s
+            LIMIT 1
+        """, (TEST_TENANT_ID,))
+        task = db_cursor.fetchone()
+
+        if task:
+            # Try to update with incorrect version (simulating conflict)
+            with pytest.raises(Exception) as excinfo:
+                db_cursor.execute("""
+                    UPDATE tasks
+                    SET title = 'Conflicting update', version = %s
+                    WHERE id = %s
+                """, (task["version"] + 10, task["id"]))  # Wrong version
+            # The check_version_conflict trigger should raise an exception
+            assert "conflict" in str(excinfo.value).lower() or "version" in str(excinfo.value).lower()
+
+
+class TestCrossTenantConstraints:
+    """Test cross-tenant data integrity constraints."""
+
+    def test_equipment_parent_must_be_same_tenant(self, db_cursor):
+        """Verify parent equipment must belong to same tenant."""
+        # Get equipment from different tenants
+        db_cursor.execute("""
+            SELECT id FROM equipments WHERE tenant_id = %s AND deleted_at IS NULL LIMIT 1
+        """, (TEST_TENANT_ID,))
+        equipment1 = db_cursor.fetchone()
+
+        db_cursor.execute("""
+            SELECT id FROM equipments WHERE tenant_id = %s AND deleted_at IS NULL LIMIT 1
+        """, (TEST_TENANT_ID_2,))
+        equipment2 = db_cursor.fetchone()
+
+        if equipment1 and equipment2:
+            # Try to set parent from different tenant - should fail
+            with pytest.raises(Exception) as excinfo:
+                db_cursor.execute("""
+                    UPDATE equipments
+                    SET parent_equipment_id = %s
+                    WHERE id = %s
+                """, (equipment2["id"], equipment1["id"]))
+            assert "tenant" in str(excinfo.value).lower()
+
+    def test_circular_reference_prevented(self, db_cursor):
+        """Verify circular references in equipment hierarchy are prevented."""
+        # Get equipment hierarchy
+        db_cursor.execute("""
+            SELECT e.id, e.parent_equipment_id
+            FROM equipments e
+            WHERE e.tenant_id = %s
+              AND e.parent_equipment_id IS NOT NULL
+              AND e.deleted_at IS NULL
+            LIMIT 1
+        """, (TEST_TENANT_ID,))
+        child = db_cursor.fetchone()
+
+        if child and child["parent_equipment_id"]:
+            # Try to create circular reference: set parent's parent to child
+            with pytest.raises(Exception) as excinfo:
+                db_cursor.execute("""
+                    UPDATE equipments
+                    SET parent_equipment_id = %s
+                    WHERE id = %s
+                """, (child["id"], child["parent_equipment_id"]))
+            assert "circular" in str(excinfo.value).lower()
+
+    def test_self_reference_prevented(self, db_cursor):
+        """Verify equipment cannot be its own parent."""
+        db_cursor.execute("""
+            SELECT id FROM equipments
+            WHERE tenant_id = %s AND deleted_at IS NULL
+            LIMIT 1
+        """, (TEST_TENANT_ID,))
+        equipment = db_cursor.fetchone()
+
+        if equipment:
+            with pytest.raises(Exception) as excinfo:
+                db_cursor.execute("""
+                    UPDATE equipments
+                    SET parent_equipment_id = %s
+                    WHERE id = %s
+                """, (equipment["id"], equipment["id"]))
+            assert "parent" in str(excinfo.value).lower() or "itself" in str(excinfo.value).lower()
+
+
 class TestTaskComments:
     """Test task comments feature (課題2)."""
 

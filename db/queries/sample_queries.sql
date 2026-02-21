@@ -489,18 +489,35 @@ ORDER BY
 -- ============================================================================
 -- 23. クロステナント統計（システム管理者用）
 -- ============================================================================
+-- 【最適化】相関サブクエリをLEFT JOINに変更（N+1問題の回避）
 \echo '=== テナント別統計（システム管理者用） ==='
 
 SELECT
     t.name AS tenant_name,
     t.slug,
-    (SELECT COUNT(*) FROM users u WHERE u.tenant_id = t.id AND u.deleted_at IS NULL) AS user_count,
-    (SELECT COUNT(*) FROM equipments e WHERE e.tenant_id = t.id AND e.deleted_at IS NULL) AS equipment_count,
-    (SELECT COUNT(*) FROM tasks tk WHERE tk.tenant_id = t.id AND tk.deleted_at IS NULL) AS task_count,
-    (SELECT COUNT(*) FROM parts p WHERE p.tenant_id = t.id AND p.deleted_at IS NULL) AS parts_count,
+    COALESCE(uc.user_count, 0) AS user_count,
+    COALESCE(ec.equipment_count, 0) AS equipment_count,
+    COALESCE(tc.task_count, 0) AS task_count,
+    COALESCE(pc.parts_count, 0) AS parts_count,
     t.timezone,
     TO_CHAR(t.created_at, 'YYYY-MM-DD') AS created_date
 FROM tenants t
+LEFT JOIN (
+    SELECT tenant_id, COUNT(*) AS user_count
+    FROM users WHERE deleted_at IS NULL GROUP BY tenant_id
+) uc ON t.id = uc.tenant_id
+LEFT JOIN (
+    SELECT tenant_id, COUNT(*) AS equipment_count
+    FROM equipments WHERE deleted_at IS NULL GROUP BY tenant_id
+) ec ON t.id = ec.tenant_id
+LEFT JOIN (
+    SELECT tenant_id, COUNT(*) AS task_count
+    FROM tasks WHERE deleted_at IS NULL GROUP BY tenant_id
+) tc ON t.id = tc.tenant_id
+LEFT JOIN (
+    SELECT tenant_id, COUNT(*) AS parts_count
+    FROM parts WHERE deleted_at IS NULL GROUP BY tenant_id
+) pc ON t.id = pc.tenant_id
 WHERE t.deleted_at IS NULL
 ORDER BY task_count DESC;
 

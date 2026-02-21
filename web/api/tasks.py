@@ -268,7 +268,11 @@ def create_task(tenant_id: str) -> tuple[Response, int]:
 
     with get_db_connection() as conn:
         with tenant_context(conn, tenant_id, user_id, user_name) as cur:
-            cur.execute("SELECT id FROM equipments WHERE id = %s", (equipment_id,))
+            # Verify equipment exists AND belongs to the same tenant (cross-tenant protection)
+            cur.execute(
+                "SELECT id FROM equipments WHERE id = %s AND tenant_id = %s",
+                (equipment_id, tenant_id),
+            )
             if not cur.fetchone():
                 return jsonify({"error": "Equipment not found"}), 404
 

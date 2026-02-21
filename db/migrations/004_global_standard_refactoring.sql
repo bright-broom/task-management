@@ -458,6 +458,10 @@ CREATE INDEX IF NOT EXISTS idx_tasks_active ON tasks(tenant_id) WHERE deleted_at
 CREATE INDEX IF NOT EXISTS idx_tasks_dashboard ON tasks(tenant_id, status, priority, due_date)
     WHERE deleted_at IS NULL;
 
+-- 担当者名検索用（VARCHARカラム）
+CREATE INDEX IF NOT EXISTS idx_tasks_assigned_to ON tasks(tenant_id, assigned_to)
+    WHERE deleted_at IS NULL AND assigned_to IS NOT NULL;
+
 COMMENT ON COLUMN tasks.priority IS 'タスク優先度';
 COMMENT ON COLUMN tasks.category IS 'タスクカテゴリー';
 COMMENT ON COLUMN tasks.estimated_hours IS '見積工数（時間）';
