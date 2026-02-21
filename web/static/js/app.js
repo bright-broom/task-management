@@ -903,6 +903,13 @@
                 state.currentTenant = e.target.value;
                 state.selectedTaskId = null;
                 state.cache.clear();
+
+                // Clear task details panel when tenant changes
+                const taskDetails = $id("taskDetails");
+                if (taskDetails) {
+                    taskDetails.innerHTML = UI.empty("左側のリストからタスクを選択してください", "inbox");
+                }
+
                 loadAllData();
             });
         }
