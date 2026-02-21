@@ -241,10 +241,7 @@ class TestTenantIsolation:
             # Try to create task in tenant 1 with tenant 2's equipment
             response = client.post(
                 f"/api/tenants/{TEST_TENANT_ID}/tasks",
-                json={
-                    "title": "Cross-tenant test",
-                    "equipment_id": other_tenant_equipment_id
-                },
+                json={"title": "Cross-tenant test", "equipment_id": other_tenant_equipment_id},
                 content_type="application/json",
             )
             # Should fail - either 400 or 404
@@ -257,11 +254,14 @@ class TestCrossTenantAPIProtection:
     def test_task_detail_tenant_mismatch(self, client, db_cursor):
         """Test accessing task detail with wrong tenant ID returns 404."""
         # Get a task from tenant 1
-        db_cursor.execute("""
+        db_cursor.execute(
+            """
             SELECT id FROM tasks
             WHERE tenant_id = %s AND deleted_at IS NULL
             LIMIT 1
-        """, (TEST_TENANT_ID,))
+        """,
+            (TEST_TENANT_ID,),
+        )
         result = db_cursor.fetchone()
 
         if result:
@@ -275,11 +275,14 @@ class TestCrossTenantAPIProtection:
     def test_equipment_detail_tenant_mismatch(self, client, db_cursor):
         """Test accessing equipment detail with wrong tenant ID returns 404."""
         # Get an equipment from tenant 1
-        db_cursor.execute("""
+        db_cursor.execute(
+            """
             SELECT id FROM equipments
             WHERE tenant_id = %s AND deleted_at IS NULL
             LIMIT 1
-        """, (TEST_TENANT_ID,))
+        """,
+            (TEST_TENANT_ID,),
+        )
         result = db_cursor.fetchone()
 
         if result:
@@ -293,11 +296,14 @@ class TestCrossTenantAPIProtection:
     def test_part_detail_tenant_mismatch(self, client, db_cursor):
         """Test accessing part detail with wrong tenant ID returns 404."""
         # Get a part from tenant 1
-        db_cursor.execute("""
+        db_cursor.execute(
+            """
             SELECT id FROM parts
             WHERE tenant_id = %s AND deleted_at IS NULL
             LIMIT 1
-        """, (TEST_TENANT_ID,))
+        """,
+            (TEST_TENANT_ID,),
+        )
         result = db_cursor.fetchone()
 
         if result:
