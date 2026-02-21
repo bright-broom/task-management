@@ -64,19 +64,35 @@ class TestDatabaseSchema:
             assert result is not None, f"Table '{table}' should have tenant_id column"
 
     def test_uuid_primary_keys(self, db_cursor):
-        """Verify all tables use UUID primary keys."""
+        """Verify main tables use UUID primary keys.
+
+        Note: Time-series tables (audit_logs, security_events, failed_login_attempts)
+        intentionally use bigint for better write performance.
+        """
+        # Tables that intentionally use bigint for time-series data
+        bigint_pk_tables = {"audit_logs", "security_events", "failed_login_attempts"}
+
         db_cursor.execute("""
-            SELECT table_name, column_name, data_type
-            FROM information_schema.columns
-            WHERE table_schema = 'public'
-              AND column_name = 'id'
-            ORDER BY table_name
+            SELECT c.table_name, c.column_name, c.data_type
+            FROM information_schema.columns c
+            JOIN information_schema.tables t
+              ON c.table_name = t.table_name AND c.table_schema = t.table_schema
+            WHERE c.table_schema = 'public'
+              AND c.column_name = 'id'
+              AND t.table_type = 'BASE TABLE'
+            ORDER BY c.table_name
         """)
 
         for row in db_cursor.fetchall():
-            assert (
-                row["data_type"] == "uuid"
-            ), f"Table '{row['table_name']}' should use UUID for primary key"
+            table_name = row["table_name"]
+            if table_name in bigint_pk_tables:
+                assert row["data_type"] == "bigint", (
+                    f"Time-series table '{table_name}' should use bigint for primary key"
+                )
+            else:
+                assert row["data_type"] == "uuid", (
+                    f"Table '{table_name}' should use UUID for primary key"
+                )
 
 
 class TestMultiTenantIsolation:

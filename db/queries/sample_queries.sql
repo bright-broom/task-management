@@ -276,7 +276,7 @@ SELECT
     al.table_name,
     al.operation,
     al.performed_by_name,
-    SUBSTRING(al.changed_fields, 1, 50) AS changed_fields,
+    LEFT(array_to_string(al.changed_fields, ', '), 50) AS changed_fields,
     al.ip_address
 FROM audit_logs al
 WHERE al.tenant_id = :tenant_id
@@ -555,7 +555,7 @@ SELECT
     pp.max_length,
     CASE WHEN pp.require_uppercase THEN 'Yes' ELSE 'No' END AS require_uppercase,
     CASE WHEN pp.require_numbers THEN 'Yes' ELSE 'No' END AS require_numbers,
-    CASE WHEN pp.require_special THEN 'Yes' ELSE 'No' END AS require_special,
+    CASE WHEN pp.require_special_chars THEN 'Yes' ELSE 'No' END AS require_special,
     pp.password_history_count,
     pp.max_age_days,
     pp.max_failed_attempts,

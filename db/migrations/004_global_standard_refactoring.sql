@@ -465,6 +465,9 @@ COMMENT ON COLUMN tasks.actual_hours IS '実績工数（時間）';
 COMMENT ON COLUMN tasks.started_at IS '作業開始日時';
 COMMENT ON COLUMN tasks.completed_at IS '作業完了日時';
 
+-- FK制約（ユーザー参照）
+-- 注意: usersテーブルより後に定義されるため、006マイグレーションで追加
+
 -- -----------------------------------------------------------------------------
 -- 5.5 equipment_partsテーブル拡張
 -- -----------------------------------------------------------------------------
@@ -533,6 +536,12 @@ CREATE OR REPLACE FUNCTION check_equipment_parent_tenant()
 RETURNS TRIGGER AS $$
 BEGIN
     IF NEW.parent_equipment_id IS NOT NULL THEN
+        -- 自己参照の防止
+        IF NEW.id = NEW.parent_equipment_id THEN
+            RAISE EXCEPTION 'Equipment cannot be its own parent';
+        END IF;
+
+        -- 親設備の存在とテナント確認
         IF NOT EXISTS (
             SELECT 1 FROM equipments
             WHERE id = NEW.parent_equipment_id
@@ -540,6 +549,25 @@ BEGIN
               AND deleted_at IS NULL
         ) THEN
             RAISE EXCEPTION 'Parent equipment must belong to the same tenant and not be deleted';
+        END IF;
+
+        -- 循環参照の防止（UPDATE時のみ、INSERTは新規IDなので不要）
+        IF TG_OP = 'UPDATE' THEN
+            IF EXISTS (
+                WITH RECURSIVE ancestors AS (
+                    SELECT parent_equipment_id, 1 AS depth
+                    FROM equipments
+                    WHERE id = NEW.parent_equipment_id AND deleted_at IS NULL
+                    UNION ALL
+                    SELECT e.parent_equipment_id, a.depth + 1
+                    FROM equipments e
+                    JOIN ancestors a ON e.id = a.parent_equipment_id
+                    WHERE e.deleted_at IS NULL AND a.depth < 100  -- 深さ制限
+                )
+                SELECT 1 FROM ancestors WHERE parent_equipment_id = NEW.id
+            ) THEN
+                RAISE EXCEPTION 'Circular reference detected in equipment hierarchy';
+            END IF;
         END IF;
     END IF;
     RETURN NEW;
@@ -552,7 +580,7 @@ CREATE TRIGGER trg_check_equipment_parent_tenant
     WHEN (NEW.parent_equipment_id IS NOT NULL)
     EXECUTE FUNCTION check_equipment_parent_tenant();
 
-COMMENT ON FUNCTION check_equipment_parent_tenant() IS '親設備がテナント内に存在することを検証';
+COMMENT ON FUNCTION check_equipment_parent_tenant() IS '親設備の検証（テナント確認・循環参照防止）';
 
 -- equipment_parts: 設備と部品が同一テナントであることを保証
 CREATE OR REPLACE FUNCTION check_equipment_parts_tenant()
@@ -969,6 +997,69 @@ END;
 $$ LANGUAGE plpgsql STABLE;
 
 COMMENT ON FUNCTION current_user_name() IS 'セッション変数から現在のユーザー名を取得';
+
+-- ============================================================================
+-- SECTION 13: 遅延FK制約（usersテーブル参照）
+-- ============================================================================
+-- usersテーブル作成後にFK制約を追加
+
+-- tasks.assigned_to_user_id -> users.id
+ALTER TABLE tasks
+    ADD CONSTRAINT fk_tasks_assigned_user
+    FOREIGN KEY (assigned_to_user_id)
+    REFERENCES users(id)
+    ON DELETE SET NULL;
+
+-- tasks.created_by -> users.id
+ALTER TABLE tasks
+    ADD CONSTRAINT fk_tasks_created_by
+    FOREIGN KEY (created_by)
+    REFERENCES users(id)
+    ON DELETE SET NULL;
+
+-- task_comments.user_id -> users.id
+ALTER TABLE task_comments
+    ADD CONSTRAINT fk_task_comments_user
+    FOREIGN KEY (user_id)
+    REFERENCES users(id)
+    ON DELETE SET NULL;
+
+COMMENT ON CONSTRAINT fk_tasks_assigned_user ON tasks IS 'タスク担当者への参照（削除時NULL）';
+COMMENT ON CONSTRAINT fk_tasks_created_by ON tasks IS 'タスク作成者への参照（削除時NULL）';
+COMMENT ON CONSTRAINT fk_task_comments_user ON task_comments IS 'コメント投稿者への参照（削除時NULL）';
+
+-- ============================================================================
+-- SECTION 14: 追加CHECK制約
+-- ============================================================================
+
+-- tasks: 工数は非負
+ALTER TABLE tasks
+    ADD CONSTRAINT chk_tasks_estimated_hours CHECK (estimated_hours IS NULL OR estimated_hours >= 0),
+    ADD CONSTRAINT chk_tasks_actual_hours CHECK (actual_hours IS NULL OR actual_hours >= 0);
+
+-- parts: リードタイム・最小発注数は非負
+ALTER TABLE parts
+    ADD CONSTRAINT chk_parts_lead_time CHECK (lead_time_days IS NULL OR lead_time_days >= 0),
+    ADD CONSTRAINT chk_parts_min_order CHECK (minimum_order_quantity IS NULL OR minimum_order_quantity >= 1);
+
+-- equipments: メンテナンス日付の順序
+ALTER TABLE equipments
+    ADD CONSTRAINT chk_equipments_maintenance_dates CHECK (
+        next_maintenance_date IS NULL
+        OR last_maintenance_date IS NULL
+        OR next_maintenance_date >= last_maintenance_date
+    );
+
+-- parts: 通貨コードはISO 4217形式
+ALTER TABLE parts
+    ADD CONSTRAINT chk_parts_currency CHECK (currency IS NULL OR currency ~ '^[A-Z]{3}$');
+
+COMMENT ON CONSTRAINT chk_tasks_estimated_hours ON tasks IS '見積工数は0以上';
+COMMENT ON CONSTRAINT chk_tasks_actual_hours ON tasks IS '実績工数は0以上';
+COMMENT ON CONSTRAINT chk_parts_lead_time ON parts IS 'リードタイムは0以上';
+COMMENT ON CONSTRAINT chk_parts_min_order ON parts IS '最小発注数は1以上';
+COMMENT ON CONSTRAINT chk_equipments_maintenance_dates ON equipments IS '次回メンテナンス日は前回以降';
+COMMENT ON CONSTRAINT chk_parts_currency ON parts IS '通貨コードはISO 4217形式（3文字大文字）';
 
 -- ============================================================================
 -- 完了メッセージ

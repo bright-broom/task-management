@@ -41,7 +41,8 @@
       "Bash(npm run check-all:*)",
       "Bash(DATABASE_URL=\"postgresql://m2x_user:m2x_password@localhost:5432/m2x_db\" python3:*)",
       "Bash(docker exec:*)",
-      "Bash(docker logs:*)"
+      "Bash(docker logs:*)",
+      "Bash(DATABASE_URL=\"postgresql://m2x_user:m2x_password@localhost:5432/m2x_task_management\" python -m pytest:*)"
     ]
   }
 }
