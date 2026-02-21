@@ -14,7 +14,7 @@ flake8==7.3.0
 
 # Security
 bandit==1.9.3
-safety==2.3.5
+safety==3.7.0
 
 # Type checking
 mypy==1.19.1
