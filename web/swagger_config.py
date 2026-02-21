@@ -363,6 +363,6 @@ def init_swagger(app: object) -> None:
     Args:
         app: Flaskアプリケーションインスタンス
     """
-    from flasgger import Swagger
+    from flasgger import Swagger  # type: ignore[import-untyped]
 
     Swagger(app, template=SWAGGER_TEMPLATE, config=SWAGGER_CONFIG)
