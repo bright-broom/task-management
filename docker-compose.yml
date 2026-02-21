@@ -10,6 +10,7 @@ services:
       - "5432:5432"
     volumes:
       # マイグレーション（番号順に自動実行）
+      # NOTE: 003は欠番（将来の拡張用に予約、または開発中に削除されたマイグレーション）
       - ./db/migrations/001_create_tables.sql:/docker-entrypoint-initdb.d/001_create_tables.sql:ro
       - ./db/migrations/002_seed_data.sql:/docker-entrypoint-initdb.d/002_seed_data.sql:ro
       - ./db/migrations/004_global_standard_refactoring.sql:/docker-entrypoint-initdb.d/004_global_standard_refactoring.sql:ro

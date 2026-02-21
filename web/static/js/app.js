@@ -162,6 +162,7 @@
     }
 
     function extractItems(response) {
+        if (!response) return [];
         return response.items || response;
     }
 
@@ -359,6 +360,18 @@
         },
     };
 
+    /**
+     * Generic list/table data loader with error handling
+     * @param {Object} options - Load options
+     * @param {string} options.containerId - DOM element ID to render into
+     * @param {string} options.apiUrl - API endpoint URL
+     * @param {string} options.loadingKey - Key for loading state tracking
+     * @param {Function} options.template - Template function for each item
+     * @param {string} options.emptyMessage - Message when no items
+     * @param {boolean} [options.isTable=false] - Whether rendering table rows
+     * @param {number} [options.tableColspan=0] - Colspan for empty table row
+     * @returns {Promise<Array>} Loaded items array
+     */
     async function loadListData({ containerId, apiUrl, loadingKey, template, emptyMessage, isTable = false, tableColspan = 0 }) {
         const container = $id(containerId);
         if (!container) return;
@@ -375,7 +388,8 @@
                     : UI.empty(emptyMessage);
             }
             return items;
-        } catch {
+        } catch (error) {
+            console.error(`Failed to load ${containerId}:`, error);
             container.innerHTML = isTable
                 ? UI.emptyTableRow("読み込みエラー", tableColspan)
                 : UI.empty("読み込みエラー");
