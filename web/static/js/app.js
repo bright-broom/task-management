@@ -94,10 +94,6 @@
         },
     };
 
-    // ==========================================================================
-    // State Management
-    // ==========================================================================
-
     const state = {
         currentTenant: null,
         currentTab: "dashboard",
@@ -156,10 +152,6 @@
             timeoutId = setTimeout(() => fn.apply(this, args), delay);
         };
     }
-
-    // ==========================================================================
-    // State Management
-    // ==========================================================================
 
     function resetSelectionState() {
         state.selectedTaskId = null;
@@ -783,7 +775,6 @@
         state.selectedTaskId = taskId;
         container.innerHTML = UI.loading();
 
-        // Update selected state in list
         $$("[data-task-id]").forEach(el => {
             const isSelected = el.dataset.taskId === taskId;
             el.classList.toggle("bg-blue-50", isSelected);
@@ -908,7 +899,6 @@
     }
 
     function bindGlobalEvents() {
-        // Tenant select
         const tenantSelect = $id("tenantSelect");
         if (tenantSelect) {
             tenantSelect.addEventListener("change", (e) => {
@@ -919,7 +909,6 @@
             });
         }
 
-        // Tab buttons (using event delegation)
         const tabContainer = $id("tabButtons");
         if (tabContainer) {
             tabContainer.addEventListener("click", (e) => {
@@ -930,7 +919,6 @@
             });
         }
 
-        // Keyboard navigation for tabs
         document.addEventListener("keydown", (e) => {
             if (e.target.classList.contains("tab-btn")) {
                 const tabs = Array.from($$(".tab-btn"));
@@ -981,14 +969,12 @@
         loadTenants();
     }
 
-    // Start application when DOM is ready
     if (document.readyState === "loading") {
         document.addEventListener("DOMContentLoaded", initialize);
     } else {
         initialize();
     }
 
-    // Expose necessary functions to global scope for debugging
     window.M2X = {
         state,
         showTab,
