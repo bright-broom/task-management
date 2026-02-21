@@ -83,6 +83,8 @@
 
 ## テーブル構成
 
+### 基本テーブル（課題1・課題2）
+
 | テーブル | 説明 |
 |---|---|
 | `tenants` | テナント（工場環境）の管理 |
@@ -94,6 +96,21 @@
 | `custom_field_definitions` | テナント独自のカスタム入力項目定義 |
 | `custom_field_values` | カスタムフィールドの値（EAVパターン） |
 | `task_comments` | 【課題2】タスクコメント |
+
+### エンタープライズテーブル（高度機能）
+
+| テーブル | 説明 |
+|---|---|
+| `users` | ユーザー管理（RBAC対応） |
+| `audit_logs` | 監査ログ（全変更追跡・不変） |
+| `security_events` | セキュリティイベント記録 |
+| `api_keys` | APIキー管理 |
+| `user_sessions` | セッション管理（RLS対応） |
+| `failed_login_attempts` | 失敗ログイン追跡 |
+| `ip_blocklist` | IPブロックリスト |
+| `password_policies` | パスワードポリシー設定 |
+| `rate_limit_configs` | レート制限設定 |
+| `password_history` | パスワード履歴 |
 
 ## ER図
 
@@ -307,6 +324,61 @@ Assembly Line A          (parent_equipment_id = NULL)
 
 ---
 
+## 高度機能（エンタープライズ対応）
+
+本システムでは、基本要件に加えてエンタープライズ環境で必要となる高度な機能を実装しています。
+
+### グローバル基準準拠
+
+| 規格 | 対応内容 |
+|------|----------|
+| **ISO 27001** | 監査ログによる全変更追跡 |
+| **SOC 2** | アクセス制御とデータ整合性 |
+| **GDPR** | ソフトデリートによる履歴保持 |
+| **OWASP Top 10** | セキュリティイベント監視 |
+
+### 追加テーブル（エンタープライズ機能）
+
+| テーブル | 説明 |
+|----------|------|
+| `users` | RBAC対応ユーザー管理（admin/manager/operator/viewer） |
+| `audit_logs` | 全データ変更の監査ログ（不変） |
+| `security_events` | セキュリティイベント記録 |
+| `api_keys` | APIキー管理（スコープ・有効期限付き） |
+| `user_sessions` | セッション管理（RLS対応） |
+| `failed_login_attempts` | ブルートフォース検出 |
+| `ip_blocklist` | IP制限リスト |
+| `password_policies` | テナント別パスワードポリシー |
+| `rate_limit_configs` | APIレート制限設定 |
+
+### セキュリティ機能
+
+```sql
+-- Row Level Security（テナント分離）
+ALTER TABLE users ENABLE ROW LEVEL SECURITY;
+CREATE POLICY users_tenant_isolation ON users
+    USING (tenant_id = current_tenant_id());
+
+-- 監査ログは変更・削除不可（コンプライアンス要件）
+CREATE TRIGGER prevent_audit_log_update
+    BEFORE UPDATE OR DELETE ON audit_logs
+    EXECUTE FUNCTION prevent_audit_log_modification();
+
+-- 楽観的ロック（コンフリクト検出）
+-- 全主要テーブルにversion列を追加
+```
+
+### データ整合性
+
+| 機能 | 説明 |
+|------|------|
+| **楽観的ロック** | `version`列による並行更新コンフリクト検出 |
+| **ソフトデリート** | 全テーブルに`deleted_at`追加、物理削除なし |
+| **クロステナント制約** | トリガーによる親子関係の整合性保証 |
+| **JSONバリデーション** | カスタムフィールド値の型チェック |
+
+---
+
 ## 前提条件・仮定事項
 
 | # | 仮定内容 | 根拠・補足 |
@@ -332,7 +404,10 @@ Assembly Line A          (parent_equipment_id = NULL)
 ├── db/                                # 【課題の解答】データベース設計
 │   ├── migrations/
 │   │   ├── 001_create_tables.sql      # テーブル定義（課題1 + 課題2）
-│   │   └── 002_seed_data.sql          # サンプルデータ
+│   │   ├── 002_seed_data.sql          # サンプルデータ
+│   │   ├── 004_global_standard.sql    # エンタープライズ機能（RBAC/監査ログ）
+│   │   ├── 005_seed_data_extension.sql # 追加シードデータ
+│   │   └── 006_security_enhancements.sql # セキュリティ強化
 │   └── queries/
 │       └── sample_queries.sql         # 集計クエリ例（10種類）
 │

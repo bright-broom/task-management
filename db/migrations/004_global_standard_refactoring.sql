@@ -23,6 +23,24 @@
 -- ============================================================================
 
 -- ============================================================================
+-- SECTION 0: RLS用ヘルパー関数
+-- ============================================================================
+-- Row Level Security (RLS) で使用するテナントID取得関数
+-- アプリケーション層で SET app.current_tenant_id = 'UUID' を実行して設定
+
+CREATE OR REPLACE FUNCTION current_tenant_id()
+RETURNS UUID AS $$
+BEGIN
+    RETURN NULLIF(current_setting('app.current_tenant_id', TRUE), '')::UUID;
+EXCEPTION
+    WHEN OTHERS THEN
+        RETURN NULL;
+END;
+$$ LANGUAGE plpgsql STABLE;
+
+COMMENT ON FUNCTION current_tenant_id() IS 'RLS用: 現在のテナントIDを取得（app.current_tenant_idから）';
+
+-- ============================================================================
 -- SECTION 1: 追加ENUM型定義
 -- ============================================================================
 
@@ -182,9 +200,22 @@ CREATE TABLE audit_logs (
     user_agent TEXT,
     request_id UUID,  -- リクエストトレーシング用
 
-    -- インデックス最適化用
-    year_month VARCHAR(7) GENERATED ALWAYS AS (TO_CHAR(performed_at, 'YYYY-MM')) STORED
+    -- インデックス最適化用（トリガーで自動設定）
+    year_month VARCHAR(7)
 );
+
+-- year_month自動設定トリガー
+CREATE OR REPLACE FUNCTION set_audit_year_month()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.year_month := TO_CHAR(NEW.performed_at, 'YYYY-MM');
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_audit_logs_year_month
+    BEFORE INSERT ON audit_logs
+    FOR EACH ROW EXECUTE FUNCTION set_audit_year_month();
 
 -- インデックス
 CREATE INDEX idx_audit_logs_table_record ON audit_logs(table_name, record_id);
@@ -199,7 +230,7 @@ CREATE INDEX idx_audit_logs_performed_at_brin ON audit_logs USING BRIN (performe
 COMMENT ON TABLE audit_logs IS '監査ログテーブル。全データ変更の追跡（ISO 27001準拠）';
 COMMENT ON COLUMN audit_logs.changed_fields IS '変更されたフィールド名の配列';
 COMMENT ON COLUMN audit_logs.request_id IS '分散トレーシング用リクエストID';
-COMMENT ON COLUMN audit_logs.year_month IS 'パーティショニング・アーカイブ用';
+COMMENT ON COLUMN audit_logs.year_month IS 'パーティショニング・アーカイブ用（トリガーで自動設定）';
 
 -- 監査ログは削除不可（トリガーで防止）
 CREATE OR REPLACE FUNCTION prevent_audit_log_modification()
@@ -418,8 +449,9 @@ CREATE INDEX IF NOT EXISTS idx_tasks_priority ON tasks(tenant_id, priority) WHER
 CREATE INDEX IF NOT EXISTS idx_tasks_category ON tasks(tenant_id, category) WHERE deleted_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_tasks_assigned_user ON tasks(assigned_to_user_id) WHERE deleted_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_tasks_created_by ON tasks(created_by) WHERE deleted_at IS NULL;
+-- 期限切れタスク用インデックス（CURRENT_DATEは部分インデックスで使用不可のため、完了以外をカバー）
 CREATE INDEX IF NOT EXISTS idx_tasks_overdue ON tasks(tenant_id, due_date)
-    WHERE deleted_at IS NULL AND status != 'done' AND due_date < CURRENT_DATE;
+    WHERE deleted_at IS NULL AND status != 'done';
 CREATE INDEX IF NOT EXISTS idx_tasks_active ON tasks(tenant_id) WHERE deleted_at IS NULL;
 
 -- 複合インデックス（ダッシュボード最適化）
@@ -577,7 +609,9 @@ CREATE TRIGGER trg_check_task_parts_tenant
 CREATE OR REPLACE FUNCTION check_version_conflict()
 RETURNS TRIGGER AS $$
 BEGIN
-    IF OLD.version != NEW.version - 1 AND NEW.version != OLD.version + 1 THEN
+    -- バージョンが明示的に変更された場合のみコンフリクトチェック
+    -- 自動インクリメントの場合（NEW.version = OLD.version）はスキップ
+    IF NEW.version != OLD.version AND NEW.version != OLD.version + 1 THEN
         RAISE EXCEPTION 'Optimistic locking conflict: record was modified by another transaction (expected version %, got %)',
             OLD.version + 1, NEW.version;
     END IF;
@@ -586,7 +620,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
-COMMENT ON FUNCTION check_version_conflict() IS '楽観的ロックによるコンフリクト検出';
+COMMENT ON FUNCTION check_version_conflict() IS '楽観的ロックによるコンフリクト検出（バージョン自動インクリメント）';
 
 -- 各テーブルにバージョンチェックトリガーを適用
 CREATE TRIGGER trg_version_check_tenants
@@ -798,8 +832,8 @@ WITH RECURSIVE equipment_tree AS (
         name,
         parent_equipment_id,
         0 AS depth,
-        ARRAY[name]::VARCHAR(255)[] AS path,
-        ARRAY[id]::UUID[] AS id_path
+        ARRAY[name::TEXT] AS path,
+        ARRAY[id] AS id_path
     FROM equipments
     WHERE parent_equipment_id IS NULL AND deleted_at IS NULL
 
@@ -811,7 +845,7 @@ WITH RECURSIVE equipment_tree AS (
         e.name,
         e.parent_equipment_id,
         et.depth + 1,
-        et.path || e.name,
+        et.path || e.name::TEXT,
         et.id_path || e.id
     FROM equipments e
     JOIN equipment_tree et ON e.parent_equipment_id = et.id

@@ -9,9 +9,12 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      # マイグレーションとシードデータの自動実行
+      # マイグレーション（番号順に自動実行）
       - ./db/migrations/001_create_tables.sql:/docker-entrypoint-initdb.d/001_create_tables.sql:ro
       - ./db/migrations/002_seed_data.sql:/docker-entrypoint-initdb.d/002_seed_data.sql:ro
+      - ./db/migrations/004_global_standard_refactoring.sql:/docker-entrypoint-initdb.d/004_global_standard_refactoring.sql:ro
+      - ./db/migrations/005_seed_data_extension.sql:/docker-entrypoint-initdb.d/005_seed_data_extension.sql:ro
+      - ./db/migrations/006_security_enhancements.sql:/docker-entrypoint-initdb.d/006_security_enhancements.sql:ro
       # サンプルクエリ（手動実行用）
       - ./db/queries/sample_queries.sql:/docker-entrypoint-initdb.d/sample_queries.sql:ro
       # データ永続化
