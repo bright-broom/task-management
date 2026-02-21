@@ -71,11 +71,8 @@ CREATE TABLE equipments (
     manufacturer VARCHAR(255),
     description TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-
-    -- 親設備が同一テナント内であることを保証するため、
-    -- アプリケーション層またはトリガーでの検証が必要
-    CONSTRAINT fk_tenant FOREIGN KEY (tenant_id) REFERENCES tenants(id)
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    -- NOTE: 親設備が同一テナント内であることはアプリケーション層で検証
 );
 
 CREATE INDEX idx_equipments_tenant ON equipments(tenant_id);
