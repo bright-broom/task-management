@@ -287,6 +287,56 @@ def require_role(*allowed_roles: str) -> Callable[[F], F]:
     return decorator
 
 
+def require_tenant_access(tenant_id_param: str = "tenant_id") -> Callable[[F], F]:
+    """Decorator requiring authenticated user belongs to the tenant.
+
+    Must be used after @require_auth or @require_role.
+
+    Args:
+        tenant_id_param: Name of the URL parameter containing tenant_id
+
+    Usage:
+        @app.route("/api/tenants/<tenant_id>/tasks")
+        @require_auth
+        @require_tenant_access("tenant_id")
+        def get_tasks(tenant_id): ...
+    """
+
+    def decorator(f: F) -> F:
+        @wraps(f)
+        def decorated(*args: Any, **kwargs: Any) -> Any:
+            # Get tenant_id from URL parameters
+            url_tenant_id = kwargs.get(tenant_id_param)
+            if not url_tenant_id:
+                return jsonify({"error": "Tenant ID required"}), 400
+
+            # Get user's tenant_id from JWT (set by require_auth)
+            user_tenant_id = getattr(g, "current_user", {}).get("tenant_id")
+
+            # Admin users can access any tenant (optional feature)
+            user_role = getattr(g, "current_user", {}).get("role")
+            if user_role == "admin":
+                return f(*args, **kwargs)
+
+            # Verify user belongs to this tenant
+            if user_tenant_id != url_tenant_id:
+                return (
+                    jsonify(
+                        {
+                            "error": "Forbidden",
+                            "message": "Access denied to this tenant's resources",
+                        }
+                    ),
+                    403,
+                )
+
+            return f(*args, **kwargs)
+
+        return decorated  # type: ignore
+
+    return decorator
+
+
 # In-memory rate limit store (use Redis in production)
 _rate_limit_store: dict[str, list[float]] = {}
 

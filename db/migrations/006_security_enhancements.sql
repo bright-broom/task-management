@@ -105,9 +105,22 @@ CREATE TABLE security_events (
     geo_country VARCHAR(2),
     geo_city VARCHAR(100),
 
-    -- パーティショニング用
-    year_month VARCHAR(7) GENERATED ALWAYS AS (TO_CHAR(event_time, 'YYYY-MM')) STORED
+    -- パーティショニング用（トリガーで自動設定）
+    year_month VARCHAR(7)
 );
+
+-- year_month自動設定トリガー
+CREATE OR REPLACE FUNCTION set_security_event_year_month()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.year_month := TO_CHAR(NEW.event_time, 'YYYY-MM');
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_security_events_year_month
+    BEFORE INSERT ON security_events
+    FOR EACH ROW EXECUTE FUNCTION set_security_event_year_month();
 
 -- インデックス
 CREATE INDEX idx_security_events_type ON security_events(event_type, event_time DESC);
@@ -322,7 +335,7 @@ CREATE TABLE ip_blocklist (
 
 -- インデックス
 CREATE INDEX idx_ip_blocklist_address ON ip_blocklist(ip_address) WHERE is_active = TRUE;
-CREATE INDEX idx_ip_blocklist_range ON ip_blocklist USING GIST (ip_range) WHERE is_active = TRUE;
+CREATE INDEX idx_ip_blocklist_range ON ip_blocklist(ip_range) WHERE is_active = TRUE;
 CREATE INDEX idx_ip_blocklist_expires ON ip_blocklist(expires_at) WHERE is_active = TRUE AND expires_at IS NOT NULL;
 
 -- IPがブロックされているかチェックする関数

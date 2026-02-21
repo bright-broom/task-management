@@ -23,6 +23,24 @@
 -- ============================================================================
 
 -- ============================================================================
+-- SECTION 0: RLS用ヘルパー関数
+-- ============================================================================
+-- Row Level Security (RLS) で使用するテナントID取得関数
+-- アプリケーション層で SET app.current_tenant_id = 'UUID' を実行して設定
+
+CREATE OR REPLACE FUNCTION current_tenant_id()
+RETURNS UUID AS $$
+BEGIN
+    RETURN NULLIF(current_setting('app.current_tenant_id', TRUE), '')::UUID;
+EXCEPTION
+    WHEN OTHERS THEN
+        RETURN NULL;
+END;
+$$ LANGUAGE plpgsql STABLE;
+
+COMMENT ON FUNCTION current_tenant_id() IS 'RLS用: 現在のテナントIDを取得（app.current_tenant_idから）';
+
+-- ============================================================================
 -- SECTION 1: 追加ENUM型定義
 -- ============================================================================
 
@@ -182,9 +200,22 @@ CREATE TABLE audit_logs (
     user_agent TEXT,
     request_id UUID,  -- リクエストトレーシング用
 
-    -- インデックス最適化用
-    year_month VARCHAR(7) GENERATED ALWAYS AS (TO_CHAR(performed_at, 'YYYY-MM')) STORED
+    -- インデックス最適化用（トリガーで自動設定）
+    year_month VARCHAR(7)
 );
+
+-- year_month自動設定トリガー
+CREATE OR REPLACE FUNCTION set_audit_year_month()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.year_month := TO_CHAR(NEW.performed_at, 'YYYY-MM');
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_audit_logs_year_month
+    BEFORE INSERT ON audit_logs
+    FOR EACH ROW EXECUTE FUNCTION set_audit_year_month();
 
 -- インデックス
 CREATE INDEX idx_audit_logs_table_record ON audit_logs(table_name, record_id);
@@ -199,7 +230,7 @@ CREATE INDEX idx_audit_logs_performed_at_brin ON audit_logs USING BRIN (performe
 COMMENT ON TABLE audit_logs IS '監査ログテーブル。全データ変更の追跡（ISO 27001準拠）';
 COMMENT ON COLUMN audit_logs.changed_fields IS '変更されたフィールド名の配列';
 COMMENT ON COLUMN audit_logs.request_id IS '分散トレーシング用リクエストID';
-COMMENT ON COLUMN audit_logs.year_month IS 'パーティショニング・アーカイブ用';
+COMMENT ON COLUMN audit_logs.year_month IS 'パーティショニング・アーカイブ用（トリガーで自動設定）';
 
 -- 監査ログは削除不可（トリガーで防止）
 CREATE OR REPLACE FUNCTION prevent_audit_log_modification()
@@ -418,13 +449,18 @@ CREATE INDEX IF NOT EXISTS idx_tasks_priority ON tasks(tenant_id, priority) WHER
 CREATE INDEX IF NOT EXISTS idx_tasks_category ON tasks(tenant_id, category) WHERE deleted_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_tasks_assigned_user ON tasks(assigned_to_user_id) WHERE deleted_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_tasks_created_by ON tasks(created_by) WHERE deleted_at IS NULL;
+-- 期限切れタスク用インデックス（CURRENT_DATEは部分インデックスで使用不可のため、完了以外をカバー）
 CREATE INDEX IF NOT EXISTS idx_tasks_overdue ON tasks(tenant_id, due_date)
-    WHERE deleted_at IS NULL AND status != 'done' AND due_date < CURRENT_DATE;
+    WHERE deleted_at IS NULL AND status != 'done';
 CREATE INDEX IF NOT EXISTS idx_tasks_active ON tasks(tenant_id) WHERE deleted_at IS NULL;
 
 -- 複合インデックス（ダッシュボード最適化）
 CREATE INDEX IF NOT EXISTS idx_tasks_dashboard ON tasks(tenant_id, status, priority, due_date)
     WHERE deleted_at IS NULL;
+
+-- 担当者名検索用（VARCHARカラム）
+CREATE INDEX IF NOT EXISTS idx_tasks_assigned_to ON tasks(tenant_id, assigned_to)
+    WHERE deleted_at IS NULL AND assigned_to IS NOT NULL;
 
 COMMENT ON COLUMN tasks.priority IS 'タスク優先度';
 COMMENT ON COLUMN tasks.category IS 'タスクカテゴリー';
@@ -432,6 +468,9 @@ COMMENT ON COLUMN tasks.estimated_hours IS '見積工数（時間）';
 COMMENT ON COLUMN tasks.actual_hours IS '実績工数（時間）';
 COMMENT ON COLUMN tasks.started_at IS '作業開始日時';
 COMMENT ON COLUMN tasks.completed_at IS '作業完了日時';
+
+-- FK制約（ユーザー参照）
+-- 注意: usersテーブルより後に定義されるため、006マイグレーションで追加
 
 -- -----------------------------------------------------------------------------
 -- 5.5 equipment_partsテーブル拡張
@@ -468,6 +507,10 @@ ALTER TABLE custom_field_definitions
 CREATE INDEX IF NOT EXISTS idx_custom_field_definitions_active ON custom_field_definitions(tenant_id)
     WHERE deleted_at IS NULL;
 
+-- EAVパターンのフィールド名検索を高速化
+CREATE INDEX IF NOT EXISTS idx_custom_field_definitions_lookup ON custom_field_definitions(tenant_id, field_name)
+    WHERE deleted_at IS NULL;
+
 COMMENT ON COLUMN custom_field_definitions.validation_rules IS 'バリデーションルール（JSON Schema形式）';
 COMMENT ON COLUMN custom_field_definitions.placeholder IS '入力プレースホルダー';
 
@@ -501,6 +544,12 @@ CREATE OR REPLACE FUNCTION check_equipment_parent_tenant()
 RETURNS TRIGGER AS $$
 BEGIN
     IF NEW.parent_equipment_id IS NOT NULL THEN
+        -- 自己参照の防止
+        IF NEW.id = NEW.parent_equipment_id THEN
+            RAISE EXCEPTION 'Equipment cannot be its own parent';
+        END IF;
+
+        -- 親設備の存在とテナント確認
         IF NOT EXISTS (
             SELECT 1 FROM equipments
             WHERE id = NEW.parent_equipment_id
@@ -508,6 +557,25 @@ BEGIN
               AND deleted_at IS NULL
         ) THEN
             RAISE EXCEPTION 'Parent equipment must belong to the same tenant and not be deleted';
+        END IF;
+
+        -- 循環参照の防止（UPDATE時のみ、INSERTは新規IDなので不要）
+        IF TG_OP = 'UPDATE' THEN
+            IF EXISTS (
+                WITH RECURSIVE ancestors AS (
+                    SELECT parent_equipment_id, 1 AS depth
+                    FROM equipments
+                    WHERE id = NEW.parent_equipment_id AND deleted_at IS NULL
+                    UNION ALL
+                    SELECT e.parent_equipment_id, a.depth + 1
+                    FROM equipments e
+                    JOIN ancestors a ON e.id = a.parent_equipment_id
+                    WHERE e.deleted_at IS NULL AND a.depth < 100  -- 深さ制限
+                )
+                SELECT 1 FROM ancestors WHERE parent_equipment_id = NEW.id
+            ) THEN
+                RAISE EXCEPTION 'Circular reference detected in equipment hierarchy';
+            END IF;
         END IF;
     END IF;
     RETURN NEW;
@@ -520,7 +588,7 @@ CREATE TRIGGER trg_check_equipment_parent_tenant
     WHEN (NEW.parent_equipment_id IS NOT NULL)
     EXECUTE FUNCTION check_equipment_parent_tenant();
 
-COMMENT ON FUNCTION check_equipment_parent_tenant() IS '親設備がテナント内に存在することを検証';
+COMMENT ON FUNCTION check_equipment_parent_tenant() IS '親設備の検証（テナント確認・循環参照防止）';
 
 -- equipment_parts: 設備と部品が同一テナントであることを保証
 CREATE OR REPLACE FUNCTION check_equipment_parts_tenant()
@@ -577,7 +645,9 @@ CREATE TRIGGER trg_check_task_parts_tenant
 CREATE OR REPLACE FUNCTION check_version_conflict()
 RETURNS TRIGGER AS $$
 BEGIN
-    IF OLD.version != NEW.version - 1 AND NEW.version != OLD.version + 1 THEN
+    -- バージョンが明示的に変更された場合のみコンフリクトチェック
+    -- 自動インクリメントの場合（NEW.version = OLD.version）はスキップ
+    IF NEW.version != OLD.version AND NEW.version != OLD.version + 1 THEN
         RAISE EXCEPTION 'Optimistic locking conflict: record was modified by another transaction (expected version %, got %)',
             OLD.version + 1, NEW.version;
     END IF;
@@ -586,7 +656,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
-COMMENT ON FUNCTION check_version_conflict() IS '楽観的ロックによるコンフリクト検出';
+COMMENT ON FUNCTION check_version_conflict() IS '楽観的ロックによるコンフリクト検出（バージョン自動インクリメント）';
 
 -- 各テーブルにバージョンチェックトリガーを適用
 CREATE TRIGGER trg_version_check_tenants
@@ -798,8 +868,8 @@ WITH RECURSIVE equipment_tree AS (
         name,
         parent_equipment_id,
         0 AS depth,
-        ARRAY[name]::VARCHAR(255)[] AS path,
-        ARRAY[id]::UUID[] AS id_path
+        ARRAY[name::TEXT] AS path,
+        ARRAY[id] AS id_path
     FROM equipments
     WHERE parent_equipment_id IS NULL AND deleted_at IS NULL
 
@@ -811,7 +881,7 @@ WITH RECURSIVE equipment_tree AS (
         e.name,
         e.parent_equipment_id,
         et.depth + 1,
-        et.path || e.name,
+        et.path || e.name::TEXT,
         et.id_path || e.id
     FROM equipments e
     JOIN equipment_tree et ON e.parent_equipment_id = et.id
@@ -935,6 +1005,69 @@ END;
 $$ LANGUAGE plpgsql STABLE;
 
 COMMENT ON FUNCTION current_user_name() IS 'セッション変数から現在のユーザー名を取得';
+
+-- ============================================================================
+-- SECTION 13: 遅延FK制約（usersテーブル参照）
+-- ============================================================================
+-- usersテーブル作成後にFK制約を追加
+
+-- tasks.assigned_to_user_id -> users.id
+ALTER TABLE tasks
+    ADD CONSTRAINT fk_tasks_assigned_user
+    FOREIGN KEY (assigned_to_user_id)
+    REFERENCES users(id)
+    ON DELETE SET NULL;
+
+-- tasks.created_by -> users.id
+ALTER TABLE tasks
+    ADD CONSTRAINT fk_tasks_created_by
+    FOREIGN KEY (created_by)
+    REFERENCES users(id)
+    ON DELETE SET NULL;
+
+-- task_comments.user_id -> users.id
+ALTER TABLE task_comments
+    ADD CONSTRAINT fk_task_comments_user
+    FOREIGN KEY (user_id)
+    REFERENCES users(id)
+    ON DELETE SET NULL;
+
+COMMENT ON CONSTRAINT fk_tasks_assigned_user ON tasks IS 'タスク担当者への参照（削除時NULL）';
+COMMENT ON CONSTRAINT fk_tasks_created_by ON tasks IS 'タスク作成者への参照（削除時NULL）';
+COMMENT ON CONSTRAINT fk_task_comments_user ON task_comments IS 'コメント投稿者への参照（削除時NULL）';
+
+-- ============================================================================
+-- SECTION 14: 追加CHECK制約
+-- ============================================================================
+
+-- tasks: 工数は非負
+ALTER TABLE tasks
+    ADD CONSTRAINT chk_tasks_estimated_hours CHECK (estimated_hours IS NULL OR estimated_hours >= 0),
+    ADD CONSTRAINT chk_tasks_actual_hours CHECK (actual_hours IS NULL OR actual_hours >= 0);
+
+-- parts: リードタイム・最小発注数は非負
+ALTER TABLE parts
+    ADD CONSTRAINT chk_parts_lead_time CHECK (lead_time_days IS NULL OR lead_time_days >= 0),
+    ADD CONSTRAINT chk_parts_min_order CHECK (minimum_order_quantity IS NULL OR minimum_order_quantity >= 1);
+
+-- equipments: メンテナンス日付の順序
+ALTER TABLE equipments
+    ADD CONSTRAINT chk_equipments_maintenance_dates CHECK (
+        next_maintenance_date IS NULL
+        OR last_maintenance_date IS NULL
+        OR next_maintenance_date >= last_maintenance_date
+    );
+
+-- parts: 通貨コードはISO 4217形式
+ALTER TABLE parts
+    ADD CONSTRAINT chk_parts_currency CHECK (currency IS NULL OR currency ~ '^[A-Z]{3}$');
+
+COMMENT ON CONSTRAINT chk_tasks_estimated_hours ON tasks IS '見積工数は0以上';
+COMMENT ON CONSTRAINT chk_tasks_actual_hours ON tasks IS '実績工数は0以上';
+COMMENT ON CONSTRAINT chk_parts_lead_time ON parts IS 'リードタイムは0以上';
+COMMENT ON CONSTRAINT chk_parts_min_order ON parts IS '最小発注数は1以上';
+COMMENT ON CONSTRAINT chk_equipments_maintenance_dates ON equipments IS '次回メンテナンス日は前回以降';
+COMMENT ON CONSTRAINT chk_parts_currency ON parts IS '通貨コードはISO 4217形式（3文字大文字）';
 
 -- ============================================================================
 -- 完了メッセージ

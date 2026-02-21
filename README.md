@@ -83,6 +83,8 @@
 
 ## テーブル構成
 
+### 基本テーブル（課題1・課題2）
+
 | テーブル | 説明 |
 |---|---|
 | `tenants` | テナント（工場環境）の管理 |
@@ -94,6 +96,21 @@
 | `custom_field_definitions` | テナント独自のカスタム入力項目定義 |
 | `custom_field_values` | カスタムフィールドの値（EAVパターン） |
 | `task_comments` | 【課題2】タスクコメント |
+
+### エンタープライズテーブル（高度機能）
+
+| テーブル | 説明 |
+|---|---|
+| `users` | ユーザー管理（RBAC対応） |
+| `audit_logs` | 監査ログ（全変更追跡・不変） |
+| `security_events` | セキュリティイベント記録 |
+| `api_keys` | APIキー管理 |
+| `user_sessions` | セッション管理（RLS対応） |
+| `failed_login_attempts` | 失敗ログイン追跡 |
+| `ip_blocklist` | IPブロックリスト |
+| `password_policies` | パスワードポリシー設定 |
+| `rate_limit_configs` | レート制限設定 |
+| `password_history` | パスワード履歴 |
 
 ## ER図
 
@@ -307,6 +324,61 @@ Assembly Line A          (parent_equipment_id = NULL)
 
 ---
 
+## 高度機能（エンタープライズ対応）
+
+本システムでは、基本要件に加えてエンタープライズ環境で必要となる高度な機能を実装しています。
+
+### グローバル基準準拠
+
+| 規格 | 対応内容 |
+|------|----------|
+| **ISO 27001** | 監査ログによる全変更追跡 |
+| **SOC 2** | アクセス制御とデータ整合性 |
+| **GDPR** | ソフトデリートによる履歴保持 |
+| **OWASP Top 10** | セキュリティイベント監視 |
+
+### 追加テーブル（エンタープライズ機能）
+
+| テーブル | 説明 |
+|----------|------|
+| `users` | RBAC対応ユーザー管理（admin/manager/operator/viewer） |
+| `audit_logs` | 全データ変更の監査ログ（不変） |
+| `security_events` | セキュリティイベント記録 |
+| `api_keys` | APIキー管理（スコープ・有効期限付き） |
+| `user_sessions` | セッション管理（RLS対応） |
+| `failed_login_attempts` | ブルートフォース検出 |
+| `ip_blocklist` | IP制限リスト |
+| `password_policies` | テナント別パスワードポリシー |
+| `rate_limit_configs` | APIレート制限設定 |
+
+### セキュリティ機能
+
+```sql
+-- Row Level Security（テナント分離）
+ALTER TABLE users ENABLE ROW LEVEL SECURITY;
+CREATE POLICY users_tenant_isolation ON users
+    USING (tenant_id = current_tenant_id());
+
+-- 監査ログは変更・削除不可（コンプライアンス要件）
+CREATE TRIGGER prevent_audit_log_update
+    BEFORE UPDATE OR DELETE ON audit_logs
+    EXECUTE FUNCTION prevent_audit_log_modification();
+
+-- 楽観的ロック（コンフリクト検出）
+-- 全主要テーブルにversion列を追加
+```
+
+### データ整合性
+
+| 機能 | 説明 |
+|------|------|
+| **楽観的ロック** | `version`列による並行更新コンフリクト検出 |
+| **ソフトデリート** | 全テーブルに`deleted_at`追加、物理削除なし |
+| **クロステナント制約** | トリガーによる親子関係の整合性保証 |
+| **JSONバリデーション** | カスタムフィールド値の型チェック |
+
+---
+
 ## 前提条件・仮定事項
 
 | # | 仮定内容 | 根拠・補足 |
@@ -327,35 +399,148 @@ Assembly Line A          (parent_equipment_id = NULL)
 .
 ├── README.md                          # 本ドキュメント
 ├── docker-compose.yml                 # Docker Compose 設定
-├── db/
+├── pyproject.toml                     # Python プロジェクト設定
+│
+├── db/                                # 【課題の解答】データベース設計
 │   ├── migrations/
 │   │   ├── 001_create_tables.sql      # テーブル定義（課題1 + 課題2）
-│   │   └── 002_seed_data.sql          # サンプルデータ
+│   │   ├── 002_seed_data.sql          # サンプルデータ
+│   │   ├── 004_global_standard.sql    # エンタープライズ機能（RBAC/監査ログ）
+│   │   ├── 005_seed_data_extension.sql # 追加シードデータ
+│   │   └── 006_security_enhancements.sql # セキュリティ強化
 │   └── queries/
-│       └── sample_queries.sql         # 集計クエリ例
-├── web/                               # Web UI（Flask）
-│   ├── Dockerfile
-│   ├── app.py                         # APIサーバー
-│   ├── requirements.txt
-│   └── templates/
-│       └── index.html                 # フロントエンド
-└── docs/
-    └── er-diagram.mmd                 # ER図（Mermaid形式）
+│       └── sample_queries.sql         # 集計クエリ例（10種類）
+│
+├── docs/
+│   └── er-diagram.mmd                 # ER図（Mermaid形式・詳細版）
+│
+├── web/                               # Web UI（データ確認用）
+│   ├── api/                           # REST API エンドポイント
+│   │   ├── auth.py                    # 認証API
+│   │   └── tasks.py                   # タスクAPI
+│   ├── core/                          # 設定・例外
+│   ├── models/                        # Pydantic スキーマ
+│   ├── repositories/                  # データアクセス層
+│   ├── static/js/app.js               # フロントエンド（Vanilla JS）
+│   ├── templates/index.html           # HTMLテンプレート
+│   ├── tests/                         # テストスイート
+│   ├── app.py                         # Flaskアプリケーション
+│   └── requirements.txt               # Python依存関係
+│
+└── .github/workflows/ci.yml           # CI/CD設定
+```
+
+> **Note:** `web/` ディレクトリは課題の解答を視覚的に確認するためのUIです。
+> 課題の本質的な解答は `db/` と `docs/er-diagram.mmd` に含まれています。
+
+---
+
+## 技術ハイライト
+
+本設計で採用した主要な技術パターンと実装詳細です。
+
+### データモデリング
+
+| パターン | 適用箇所 | 説明 |
+|----------|----------|------|
+| **EAV（Entity-Attribute-Value）** | `custom_field_definitions` / `custom_field_values` | テナント独自入力項目をスキーマ変更なしで柔軟に定義 |
+| **自己参照外部キー** | `equipments.parent_equipment_id` | 設備の親子階層を単一テーブルで表現 |
+| **多対多関連テーブル** | `equipment_parts` / `task_parts` | 設備⇔部品、タスク⇔部品の関連を数量付きで管理 |
+| **ソフトデリート** | 全主要テーブルの`deleted_at` | 物理削除せず履歴保持、GDPR対応 |
+
+### PostgreSQL固有機能
+
+```sql
+-- 再帰CTE: 設備階層の展開
+WITH RECURSIVE equipment_tree AS (
+    SELECT id, name, 0 AS depth FROM equipments WHERE parent_equipment_id IS NULL
+    UNION ALL
+    SELECT e.id, e.name, et.depth + 1
+    FROM equipments e JOIN equipment_tree et ON e.parent_equipment_id = et.id
+)
+SELECT * FROM equipment_tree;
+
+-- Row Level Security: テナント分離を強制
+ALTER TABLE users ENABLE ROW LEVEL SECURITY;
+CREATE POLICY users_tenant_isolation ON users
+    USING (tenant_id = current_tenant_id());
+
+-- 楽観的ロック: 並行更新の競合検出
+UPDATE tasks SET title = 'New Title', version = version + 1
+WHERE id = ? AND version = ?;  -- version不一致で0行更新 → 競合検出
+
+-- ピボットクエリ: EAVデータの横展開
+SELECT t.title,
+    MAX(CASE WHEN cfd.field_name = 'Cause' THEN cfv.value END) AS cause,
+    MAX(CASE WHEN cfd.field_name = 'Details' THEN cfv.value END) AS details
+FROM tasks t
+LEFT JOIN custom_field_values cfv ON t.id = cfv.task_id
+LEFT JOIN custom_field_definitions cfd ON cfv.field_definition_id = cfd.id
+GROUP BY t.id;
+```
+
+### セキュリティ実装
+
+| 機能 | 実装方法 | 効果 |
+|------|----------|------|
+| **RBAC** | `users.role` ENUM型 | admin/manager/operator/viewerの4階層アクセス制御 |
+| **監査ログ** | `audit_logs`テーブル + トリガー | UPDATE/DELETE禁止、コンプライアンス準拠 |
+| **ブルートフォース防止** | `failed_login_attempts` | IP/ユーザー別の失敗回数追跡 |
+| **セッション管理** | `user_sessions` | デバイスフィンガープリント、有効期限管理 |
+| **APIキー** | `api_keys` | スコープ制限、IP制限、使用量追跡 |
+
+### インデックス戦略
+
+```sql
+-- マルチテナント対応: tenant_idを先頭に配置
+CREATE INDEX idx_tasks_tenant_status ON tasks (tenant_id, status);
+CREATE INDEX idx_equipments_tenant_parent ON equipments (tenant_id, parent_equipment_id);
+
+-- 部分インデックス: アクティブレコードのみ
+CREATE INDEX idx_tasks_active ON tasks (tenant_id, due_date)
+WHERE deleted_at IS NULL AND status != 'done';
+
+-- 複合インデックス: よく使うクエリパターン
+CREATE INDEX idx_audit_logs_lookup ON audit_logs (tenant_id, table_name, performed_at);
 ```
 
 ---
 
 ## 参考: サンプルクエリ
 
-`db/queries/sample_queries.sql` に以下のクエリ例を収録しています。
+`db/queries/sample_queries.sql` に25種類のクエリ例を収録しています。
 
-1. 設備ごとのタスク数集計
-2. 部品ごとの使用回数・在庫状況
-3. タスク詳細（カスタムフィールド値を含む）の取得
-4. カスタムフィールドをピボット形式で表示
-5. 設備階層構造の表示（WITH RECURSIVE）
-6. 部品の関連設備一覧
-7. 期限切れ・期限間近のタスク
-8. タスクコメント履歴【課題2】
-9. 停止原因別の集計（カスタムフィールド分析）
-10. 設備別ダウンタイム合計
+### 基本クエリ（課題1・課題2）
+
+| # | クエリ | 説明 |
+|---|--------|------|
+| 1 | 設備ごとのタスク数集計 | ステータス別カウント付き |
+| 2 | 部品ごとの使用回数 | 在庫状況・発注要否判定 |
+| 3 | タスク詳細（カスタムフィールド含む） | EAVデータの縦持ち表示 |
+| 4 | カスタムフィールドをピボット表示 | EAVデータの横展開 |
+| 5 | 設備階層構造 | WITH RECURSIVEによる再帰展開 |
+| 6 | 部品の関連設備一覧 | STRING_AGGによる集約 |
+| 7 | 期限切れ・期限間近のタスク | 日付計算・緊急度判定 |
+| 8 | タスクコメント履歴【課題2】 | 時系列表示 |
+| 9 | 停止原因別の集計 | カスタムフィールド分析 |
+| 10 | 設備別ダウンタイム合計 | 数値型カスタムフィールド集計 |
+
+### エンタープライズクエリ（高度機能）
+
+| # | クエリ | 説明 |
+|---|--------|------|
+| 11 | ユーザー一覧（RBAC情報付き） | ロール別ソート |
+| 12 | 担当者別タスク負荷分析 | 効率性指標算出 |
+| 13 | 監査ログ検索 | 直近50件の変更履歴 |
+| 14 | 監査ログ集計 | テーブル×操作別統計 |
+| 15 | セキュリティイベント監視 | 直近7日間のアラート |
+| 16 | セキュリティ統計 | 脅威分析レポート |
+| 17 | APIキー使用状況 | 使用量・有効期限管理 |
+| 18 | アクティブセッション一覧 | 接続デバイス管理 |
+| 19 | ログイン失敗分析 | ブルートフォース検出 |
+| 20 | 設備メンテナンス予定 | 今後30日のスケジュール |
+| 21 | タスク完了率分析 | カテゴリ別効率性 |
+| 22 | 部品在庫アラート | 発注点以下の在庫検出 |
+| 23 | クロステナント統計 | システム管理者用ダッシュボード |
+| 24 | 設備階層とタスクサマリー | 深度付き集計 |
+| 25 | パスワードポリシー設定確認 | テナント別セキュリティ設定 |

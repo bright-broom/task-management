@@ -71,15 +71,13 @@ CREATE TABLE equipments (
     manufacturer VARCHAR(255),
     description TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-
-    -- 親設備が同一テナント内であることを保証するため、
-    -- アプリケーション層またはトリガーでの検証が必要
-    CONSTRAINT fk_tenant FOREIGN KEY (tenant_id) REFERENCES tenants(id)
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    -- NOTE: 親設備が同一テナント内であることはアプリケーション層で検証
 );
 
 CREATE INDEX idx_equipments_tenant ON equipments(tenant_id);
 CREATE INDEX idx_equipments_parent ON equipments(tenant_id, parent_equipment_id);
+CREATE INDEX idx_equipments_name ON equipments(tenant_id, name);
 
 COMMENT ON TABLE equipments IS '設備マスタ。親子階層構造に対応（自己参照）';
 COMMENT ON COLUMN equipments.parent_equipment_id IS '親設備ID。NULLの場合はトップレベル設備';

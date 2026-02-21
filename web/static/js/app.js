@@ -94,10 +94,6 @@
         },
     };
 
-    // ==========================================================================
-    // State Management
-    // ==========================================================================
-
     const state = {
         currentTenant: null,
         currentTab: "dashboard",
@@ -155,6 +151,19 @@
             clearTimeout(timeoutId);
             timeoutId = setTimeout(() => fn.apply(this, args), delay);
         };
+    }
+
+    function resetSelectionState() {
+        state.selectedTaskId = null;
+        const taskDetails = $id("taskDetails");
+        if (taskDetails) {
+            taskDetails.innerHTML = UI.empty("左側のリストからタスクを選択してください", "inbox");
+        }
+    }
+
+    function extractItems(response) {
+        if (!response) return [];
+        return response.items || response;
     }
 
     // ==========================================================================
@@ -262,31 +271,18 @@
             return `<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border ${colorClass} ${extraClass}">${escapeHtml(text)}</span>`;
         },
 
-        statusBadge(status) {
-            const style = CONFIG.styles.status[status] || CONFIG.styles.status.todo;
-            const label = CONFIG.labels.status[status] || status;
-            return UI.badge(label, style);
+        typedBadge(type, value, defaultKey = null) {
+            if (!value && type !== "status") return "";
+            const styles = CONFIG.styles[type] || {};
+            const labels = CONFIG.labels[type] || {};
+            const fallbackKey = defaultKey || Object.keys(styles)[0];
+            return UI.badge(labels[value] || value, styles[value] || styles[fallbackKey] || "");
         },
 
-        priorityBadge(priority) {
-            if (!priority) return "";
-            const style = CONFIG.styles.priority[priority] || CONFIG.styles.priority.medium;
-            const label = CONFIG.labels.priority[priority] || priority;
-            return UI.badge(label, style);
-        },
-
-        categoryBadge(category) {
-            if (!category) return "";
-            const style = CONFIG.styles.category[category] || CONFIG.styles.category.other;
-            const label = CONFIG.labels.category[category] || category;
-            return UI.badge(label, style);
-        },
-
-        fieldTypeBadge(type) {
-            const style = CONFIG.styles.fieldType[type] || "";
-            const label = CONFIG.labels.fieldType[type] || type;
-            return UI.badge(label, style);
-        },
+        statusBadge(status) { return UI.typedBadge("status", status, "todo"); },
+        priorityBadge(priority) { return UI.typedBadge("priority", priority, "medium"); },
+        categoryBadge(category) { return UI.typedBadge("category", category, "other"); },
+        fieldTypeBadge(type) { return UI.typedBadge("fieldType", type); },
 
         loading(lines = 3) {
             return `
@@ -358,7 +354,48 @@
                 </h3>
             `;
         },
+
+        emptyTableRow(message, colspan) {
+            return `<tr><td colspan="${colspan}" class="px-4 py-8 text-center text-gray-400">${escapeHtml(message)}</td></tr>`;
+        },
     };
+
+    /**
+     * Generic list/table data loader with error handling
+     * @param {Object} options - Load options
+     * @param {string} options.containerId - DOM element ID to render into
+     * @param {string} options.apiUrl - API endpoint URL
+     * @param {string} options.loadingKey - Key for loading state tracking
+     * @param {Function} options.template - Template function for each item
+     * @param {string} options.emptyMessage - Message when no items
+     * @param {boolean} [options.isTable=false] - Whether rendering table rows
+     * @param {number} [options.tableColspan=0] - Colspan for empty table row
+     * @returns {Promise<Array>} Loaded items array
+     */
+    async function loadListData({ containerId, apiUrl, loadingKey, template, emptyMessage, isTable = false, tableColspan = 0 }) {
+        const container = $id(containerId);
+        if (!container) return;
+
+        try {
+            const response = await fetchApi(apiUrl, { loadingKey });
+            const items = extractItems(response);
+
+            if (items.length > 0) {
+                container.innerHTML = items.map(template).join("");
+            } else {
+                container.innerHTML = isTable
+                    ? UI.emptyTableRow(emptyMessage, tableColspan)
+                    : UI.empty(emptyMessage);
+            }
+            return items;
+        } catch (error) {
+            console.error(`Failed to load ${containerId}:`, error);
+            container.innerHTML = isTable
+                ? UI.emptyTableRow("読み込みエラー", tableColspan)
+                : UI.empty("読み込みエラー");
+            return [];
+        }
+    }
 
     // ==========================================================================
     // Template Generators
@@ -744,24 +781,14 @@
     }
 
     async function loadTasks() {
-        const container = $id("taskList");
-        if (!container) return;
-
-        try {
-            const response = await fetchApi(
-                CONFIG.api.tasks(state.currentTenant),
-                { loadingKey: "tasks" }
-            );
-            const tasks = response.items || response;
-
-            container.innerHTML = tasks.length > 0
-                ? tasks.map(Templates.taskItem).join("")
-                : UI.empty("タスクがありません");
-
-            bindTaskListEvents();
-        } catch {
-            container.innerHTML = UI.empty("読み込みエラー");
-        }
+        await loadListData({
+            containerId: "taskList",
+            apiUrl: CONFIG.api.tasks(state.currentTenant),
+            loadingKey: "tasks",
+            template: Templates.taskItem,
+            emptyMessage: "タスクがありません",
+        });
+        bindTaskListEvents();
     }
 
     async function loadTaskDetails(taskId) {
@@ -771,7 +798,6 @@
         state.selectedTaskId = taskId;
         container.innerHTML = UI.loading();
 
-        // Update selected state in list
         $$("[data-task-id]").forEach(el => {
             const isSelected = el.dataset.taskId === taskId;
             el.classList.toggle("bg-blue-50", isSelected);
@@ -792,58 +818,37 @@
     }
 
     async function loadEquipments() {
-        const container = $id("equipmentList");
-        if (!container) return;
-
-        try {
-            const equipments = await fetchApi(
-                CONFIG.api.equipments(state.currentTenant),
-                { loadingKey: "equipments" }
-            );
-
-            container.innerHTML = equipments.length > 0
-                ? equipments.map(Templates.equipmentItem).join("")
-                : UI.empty("設備がありません");
-        } catch {
-            container.innerHTML = UI.empty("読み込みエラー");
-        }
+        await loadListData({
+            containerId: "equipmentList",
+            apiUrl: CONFIG.api.equipments(state.currentTenant),
+            loadingKey: "equipments",
+            template: Templates.equipmentItem,
+            emptyMessage: "設備がありません",
+        });
     }
 
     async function loadParts() {
-        const container = $id("partsList");
-        if (!container) return;
-
-        try {
-            const response = await fetchApi(
-                CONFIG.api.parts(state.currentTenant),
-                { loadingKey: "parts" }
-            );
-            const parts = response.items || response;
-
-            container.innerHTML = parts.length > 0
-                ? parts.map(Templates.partRow).join("")
-                : `<tr><td colspan="7" class="px-4 py-8 text-center text-gray-400">部品がありません</td></tr>`;
-        } catch {
-            container.innerHTML = `<tr><td colspan="7" class="px-4 py-8 text-center text-gray-400">読み込みエラー</td></tr>`;
-        }
+        await loadListData({
+            containerId: "partsList",
+            apiUrl: CONFIG.api.parts(state.currentTenant),
+            loadingKey: "parts",
+            template: Templates.partRow,
+            emptyMessage: "部品がありません",
+            isTable: true,
+            tableColspan: 7,
+        });
     }
 
     async function loadCustomFields() {
-        const container = $id("customFieldsList");
-        if (!container) return;
-
-        try {
-            const fields = await fetchApi(
-                CONFIG.api.customFields(state.currentTenant),
-                { loadingKey: "customFields" }
-            );
-
-            container.innerHTML = fields.length > 0
-                ? fields.map(Templates.customFieldRow).join("")
-                : `<tr><td colspan="5" class="px-4 py-8 text-center text-gray-400">独自入力項目がありません</td></tr>`;
-        } catch {
-            container.innerHTML = `<tr><td colspan="5" class="px-4 py-8 text-center text-gray-400">読み込みエラー</td></tr>`;
-        }
+        await loadListData({
+            containerId: "customFieldsList",
+            apiUrl: CONFIG.api.customFields(state.currentTenant),
+            loadingKey: "customFields",
+            template: Templates.customFieldRow,
+            emptyMessage: "独自入力項目がありません",
+            isTable: true,
+            tableColspan: 5,
+        });
     }
 
     // ==========================================================================
@@ -895,18 +900,16 @@
     }
 
     function bindGlobalEvents() {
-        // Tenant select
         const tenantSelect = $id("tenantSelect");
         if (tenantSelect) {
             tenantSelect.addEventListener("change", (e) => {
                 state.currentTenant = e.target.value;
-                state.selectedTaskId = null;
                 state.cache.clear();
+                resetSelectionState();
                 loadAllData();
             });
         }
 
-        // Tab buttons (using event delegation)
         const tabContainer = $id("tabButtons");
         if (tabContainer) {
             tabContainer.addEventListener("click", (e) => {
@@ -917,7 +920,6 @@
             });
         }
 
-        // Keyboard navigation for tabs
         document.addEventListener("keydown", (e) => {
             if (e.target.classList.contains("tab-btn")) {
                 const tabs = Array.from($$(".tab-btn"));
@@ -968,14 +970,12 @@
         loadTenants();
     }
 
-    // Start application when DOM is ready
     if (document.readyState === "loading") {
         document.addEventListener("DOMContentLoaded", initialize);
     } else {
         initialize();
     }
 
-    // Expose necessary functions to global scope for debugging
     window.M2X = {
         state,
         showTab,

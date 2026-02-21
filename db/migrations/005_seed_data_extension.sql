@@ -30,17 +30,17 @@ WHERE id = '22222222-2222-2222-2222-222222222222';
 -- ============================================================================
 -- Tanaka Manufacturing のユーザー
 INSERT INTO users (id, tenant_id, email, password_hash, display_name, employee_id, department, role, status) VALUES
-    ('u0000001-0001-0001-0001-000000000001', '11111111-1111-1111-1111-111111111111', 'admin@tanaka-mfg.example.com', '$2b$12$EXAMPLE_HASH_ADMIN', 'System Admin', 'EMP-001', 'IT', 'admin', 'active'),
-    ('u0000001-0001-0001-0001-000000000002', '11111111-1111-1111-1111-111111111111', 'tanaka.k@tanaka-mfg.example.com', '$2b$12$EXAMPLE_HASH_001', 'Tanaka Kenji', 'EMP-101', 'Maintenance', 'operator', 'active'),
-    ('u0000001-0001-0001-0001-000000000003', '11111111-1111-1111-1111-111111111111', 'suzuki.t@tanaka-mfg.example.com', '$2b$12$EXAMPLE_HASH_002', 'Suzuki Taro', 'EMP-102', 'Production', 'operator', 'active'),
-    ('u0000001-0001-0001-0001-000000000004', '11111111-1111-1111-1111-111111111111', 'yamada.h@tanaka-mfg.example.com', '$2b$12$EXAMPLE_HASH_003', 'Yamada Hanako', 'EMP-103', 'Production', 'operator', 'active'),
-    ('u0000001-0001-0001-0001-000000000005', '11111111-1111-1111-1111-111111111111', 'sato.k@tanaka-mfg.example.com', '$2b$12$EXAMPLE_HASH_004', 'Sato Koji', 'EMP-104', 'Quality', 'operator', 'active'),
-    ('u0000001-0001-0001-0001-000000000006', '11111111-1111-1111-1111-111111111111', 'manager@tanaka-mfg.example.com', '$2b$12$EXAMPLE_HASH_MGR', 'Factory Manager', 'EMP-200', 'Management', 'manager', 'active');
+    ('a0000001-0001-0001-0001-000000000001', '11111111-1111-1111-1111-111111111111', 'admin@tanaka-mfg.example.com', '$2b$12$EXAMPLE_HASH_ADMIN', 'System Admin', 'EMP-001', 'IT', 'admin', 'active'),
+    ('a0000001-0001-0001-0001-000000000002', '11111111-1111-1111-1111-111111111111', 'tanaka.k@tanaka-mfg.example.com', '$2b$12$EXAMPLE_HASH_001', 'Tanaka Kenji', 'EMP-101', 'Maintenance', 'operator', 'active'),
+    ('a0000001-0001-0001-0001-000000000003', '11111111-1111-1111-1111-111111111111', 'suzuki.t@tanaka-mfg.example.com', '$2b$12$EXAMPLE_HASH_002', 'Suzuki Taro', 'EMP-102', 'Production', 'operator', 'active'),
+    ('a0000001-0001-0001-0001-000000000004', '11111111-1111-1111-1111-111111111111', 'yamada.h@tanaka-mfg.example.com', '$2b$12$EXAMPLE_HASH_003', 'Yamada Hanako', 'EMP-103', 'Production', 'operator', 'active'),
+    ('a0000001-0001-0001-0001-000000000005', '11111111-1111-1111-1111-111111111111', 'sato.k@tanaka-mfg.example.com', '$2b$12$EXAMPLE_HASH_004', 'Sato Koji', 'EMP-104', 'Quality', 'operator', 'active'),
+    ('a0000001-0001-0001-0001-000000000006', '11111111-1111-1111-1111-111111111111', 'manager@tanaka-mfg.example.com', '$2b$12$EXAMPLE_HASH_MGR', 'Factory Manager', 'EMP-200', 'Management', 'manager', 'active');
 
 -- Yamamoto Electronics のユーザー
 INSERT INTO users (id, tenant_id, email, password_hash, display_name, employee_id, department, role, status) VALUES
-    ('u0000002-0001-0001-0001-000000000001', '22222222-2222-2222-2222-222222222222', 'admin@yamamoto-elec.example.com', '$2b$12$EXAMPLE_HASH_ADM2', 'Admin', 'YE-001', 'IT', 'admin', 'active'),
-    ('u0000002-0001-0001-0001-000000000002', '22222222-2222-2222-2222-222222222222', 'john.smith@yamamoto-elec.example.com', '$2b$12$EXAMPLE_HASH_JS', 'John Smith', 'YE-101', 'SMT Line', 'operator', 'active');
+    ('a0000002-0001-0001-0001-000000000001', '22222222-2222-2222-2222-222222222222', 'admin@yamamoto-elec.example.com', '$2b$12$EXAMPLE_HASH_ADM2', 'Admin', 'YE-001', 'IT', 'admin', 'active'),
+    ('a0000002-0001-0001-0001-000000000002', '22222222-2222-2222-2222-222222222222', 'john.smith@yamamoto-elec.example.com', '$2b$12$EXAMPLE_HASH_JS', 'John Smith', 'YE-101', 'SMT Line', 'operator', 'active');
 
 -- ============================================================================
 -- 設備拡張データ
@@ -110,8 +110,8 @@ UPDATE tasks SET
     priority = 'medium',
     category = 'maintenance',
     estimated_hours = 2.0,
-    created_by = 'u0000001-0001-0001-0001-000000000002',
-    assigned_to_user_id = 'u0000001-0001-0001-0001-000000000002'
+    created_by = 'a0000001-0001-0001-0001-000000000002',
+    assigned_to_user_id = 'a0000001-0001-0001-0001-000000000002'
 WHERE id = '10000001-0001-0001-0001-000000000001';
 
 UPDATE tasks SET
@@ -119,8 +119,8 @@ UPDATE tasks SET
     category = 'calibration',
     estimated_hours = 1.5,
     started_at = '2024-02-09 09:00:00+09',
-    created_by = 'u0000001-0001-0001-0001-000000000006',
-    assigned_to_user_id = 'u0000001-0001-0001-0001-000000000004'
+    created_by = 'a0000001-0001-0001-0001-000000000006',
+    assigned_to_user_id = 'a0000001-0001-0001-0001-000000000004'
 WHERE id = '10000001-0001-0001-0001-000000000002';
 
 UPDATE tasks SET
@@ -130,8 +130,8 @@ UPDATE tasks SET
     actual_hours = 0.75,
     started_at = '2024-01-31 14:00:00+09',
     completed_at = '2024-02-01 10:00:00+09',
-    created_by = 'u0000001-0001-0001-0001-000000000005',
-    assigned_to_user_id = 'u0000001-0001-0001-0001-000000000005'
+    created_by = 'a0000001-0001-0001-0001-000000000005',
+    assigned_to_user_id = 'a0000001-0001-0001-0001-000000000005'
 WHERE id = '10000001-0001-0001-0001-000000000003';
 
 UPDATE tasks SET
@@ -140,23 +140,23 @@ UPDATE tasks SET
     estimated_hours = 4.0,
     actual_hours = 3.0,
     started_at = '2024-02-08 08:30:00+09',
-    created_by = 'u0000001-0001-0001-0001-000000000003',
-    assigned_to_user_id = 'u0000001-0001-0001-0001-000000000002'
+    created_by = 'a0000001-0001-0001-0001-000000000003',
+    assigned_to_user_id = 'a0000001-0001-0001-0001-000000000002'
 WHERE id = '10000001-0001-0001-0001-000000000004';
 
 -- ============================================================================
 -- タスクコメントのユーザーID紐付け
 -- ============================================================================
-UPDATE task_comments SET user_id = 'u0000001-0001-0001-0001-000000000003'
+UPDATE task_comments SET user_id = 'a0000001-0001-0001-0001-000000000003'
 WHERE id = '40000001-0001-0001-0001-000000000001';
 
-UPDATE task_comments SET user_id = 'u0000001-0001-0001-0001-000000000002'
+UPDATE task_comments SET user_id = 'a0000001-0001-0001-0001-000000000002'
 WHERE id IN ('40000001-0001-0001-0001-000000000002', '40000001-0001-0001-0001-000000000003');
 
-UPDATE task_comments SET user_id = 'u0000001-0001-0001-0001-000000000004'
+UPDATE task_comments SET user_id = 'a0000001-0001-0001-0001-000000000004'
 WHERE id = '40000001-0001-0001-0001-000000000004';
 
-UPDATE task_comments SET user_id = 'u0000001-0001-0001-0001-000000000003'
+UPDATE task_comments SET user_id = 'a0000001-0001-0001-0001-000000000003'
 WHERE id = '40000001-0001-0001-0001-000000000005';
 
 -- ============================================================================
@@ -185,10 +185,10 @@ WHERE id = 'ffff0001-0001-0001-0001-000000000003';
 -- ============================================================================
 INSERT INTO tasks (id, tenant_id, equipment_id, title, description, status, priority, category, due_date, assigned_to, estimated_hours, created_by, assigned_to_user_id) VALUES
     -- 様々な優先度のタスク
-    ('10000001-0001-0001-0001-000000000005', '11111111-1111-1111-1111-111111111111', 'aaaa0001-0001-0001-0001-000000000003', 'Monthly inspection - Packaging Line', 'Routine monthly inspection of packaging equipment', 'todo', 'medium', 'inspection', '2024-02-20', 'Yamada H.', 2.0, 'u0000001-0001-0001-0001-000000000006', 'u0000001-0001-0001-0001-000000000004'),
-    ('10000001-0001-0001-0001-000000000006', '11111111-1111-1111-1111-111111111111', 'aaaa0001-0001-0001-0001-000000000001', 'Annual calibration - Line A sensors', 'Calibrate all sensors on Assembly Line A', 'todo', 'high', 'calibration', '2024-02-28', 'Sato K.', 4.0, 'u0000001-0001-0001-0001-000000000006', 'u0000001-0001-0001-0001-000000000005'),
-    ('10000001-0001-0001-0001-000000000007', '11111111-1111-1111-1111-111111111111', 'aaaa0001-0001-0001-0001-000000000011', 'Deep cleaning - Conveyor Belt A-1', 'Quarterly deep cleaning of conveyor belt', 'todo', 'low', 'cleaning', '2024-03-01', 'Suzuki T.', 3.0, 'u0000001-0001-0001-0001-000000000006', 'u0000001-0001-0001-0001-000000000003'),
-    ('10000001-0001-0001-0001-000000000008', '11111111-1111-1111-1111-111111111111', 'aaaa0001-0001-0001-0001-000000000012', 'Gripper replacement - Robot Arm A-1', 'Replace worn gripper unit', 'in_progress', 'high', 'replacement', '2024-02-12', 'Tanaka K.', 1.5, 'u0000001-0001-0001-0001-000000000002', 'u0000001-0001-0001-0001-000000000002');
+    ('10000001-0001-0001-0001-000000000005', '11111111-1111-1111-1111-111111111111', 'aaaa0001-0001-0001-0001-000000000003', 'Monthly inspection - Packaging Line', 'Routine monthly inspection of packaging equipment', 'todo', 'medium', 'inspection', '2024-02-20', 'Yamada H.', 2.0, 'a0000001-0001-0001-0001-000000000006', 'a0000001-0001-0001-0001-000000000004'),
+    ('10000001-0001-0001-0001-000000000006', '11111111-1111-1111-1111-111111111111', 'aaaa0001-0001-0001-0001-000000000001', 'Annual calibration - Line A sensors', 'Calibrate all sensors on Assembly Line A', 'todo', 'high', 'calibration', '2024-02-28', 'Sato K.', 4.0, 'a0000001-0001-0001-0001-000000000006', 'a0000001-0001-0001-0001-000000000005'),
+    ('10000001-0001-0001-0001-000000000007', '11111111-1111-1111-1111-111111111111', 'aaaa0001-0001-0001-0001-000000000011', 'Deep cleaning - Conveyor Belt A-1', 'Quarterly deep cleaning of conveyor belt', 'todo', 'low', 'cleaning', '2024-03-01', 'Suzuki T.', 3.0, 'a0000001-0001-0001-0001-000000000006', 'a0000001-0001-0001-0001-000000000003'),
+    ('10000001-0001-0001-0001-000000000008', '11111111-1111-1111-1111-111111111111', 'aaaa0001-0001-0001-0001-000000000012', 'Gripper replacement - Robot Arm A-1', 'Replace worn gripper unit', 'in_progress', 'high', 'replacement', '2024-02-12', 'Tanaka K.', 1.5, 'a0000001-0001-0001-0001-000000000002', 'a0000001-0001-0001-0001-000000000002');
 
 -- ============================================================================
 -- 完了メッセージ

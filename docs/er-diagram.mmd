@@ -3,32 +3,42 @@ title: M2X課題 - 工場向けタスク管理システム ER図
 ---
 erDiagram
     %% ============================================================================
-    %% テナント（マルチテナントの基盤）
+    %% SECTION 1: 基本テーブル（課題1・課題2）
     %% ============================================================================
+
+    %% テナント（マルチテナントの基盤）
     tenants {
         UUID id PK "主キー"
         VARCHAR name "テナント名"
+        VARCHAR slug "URLスラッグ"
+        VARCHAR timezone "タイムゾーン"
+        VARCHAR locale "ロケール"
+        JSONB settings "設定JSON"
+        INTEGER version "楽観的ロック用"
+        TIMESTAMP deleted_at "ソフトデリート"
         TIMESTAMP created_at "作成日時"
         TIMESTAMP updated_at "更新日時"
     }
 
-    %% ============================================================================
     %% 設備マスタ（階層構造対応）
-    %% ============================================================================
     equipments {
         UUID id PK "主キー"
         UUID tenant_id FK "テナントID"
         UUID parent_equipment_id FK "親設備ID（自己参照）"
         VARCHAR name "設備名"
+        VARCHAR serial_number "シリアル番号"
+        VARCHAR model "モデル"
         VARCHAR manufacturer "製造元"
         TEXT description "説明"
+        DATE installation_date "設置日"
+        DATE warranty_expiry "保証期限"
+        INTEGER version "楽観的ロック用"
+        TIMESTAMP deleted_at "ソフトデリート"
         TIMESTAMP created_at "作成日時"
         TIMESTAMP updated_at "更新日時"
     }
 
-    %% ============================================================================
     %% 部品マスタ
-    %% ============================================================================
     parts {
         UUID id PK "主キー"
         UUID tenant_id FK "テナントID"
@@ -38,13 +48,14 @@ erDiagram
         TEXT description "説明"
         INTEGER stock_quantity "在庫数"
         INTEGER reorder_point "発注点"
+        DECIMAL unit_price "単価"
+        INTEGER version "楽観的ロック用"
+        TIMESTAMP deleted_at "ソフトデリート"
         TIMESTAMP created_at "作成日時"
         TIMESTAMP updated_at "更新日時"
     }
 
-    %% ============================================================================
     %% 設備・部品 多対多関連
-    %% ============================================================================
     equipment_parts {
         UUID id PK "主キー"
         UUID tenant_id FK "テナントID"
@@ -53,25 +64,28 @@ erDiagram
         TIMESTAMP created_at "作成日時"
     }
 
-    %% ============================================================================
     %% タスク管理
-    %% ============================================================================
     tasks {
         UUID id PK "主キー"
         UUID tenant_id FK "テナントID"
         UUID equipment_id FK "設備ID"
+        UUID assigned_to_user_id FK "担当ユーザーID"
+        UUID created_by FK "作成者ID"
         VARCHAR title "タイトル"
         TEXT description "説明"
-        ENUM status "ステータス（todo/in_progress/done）"
+        ENUM status "ステータス"
+        ENUM priority "優先度"
+        ENUM category "カテゴリ"
         DATE due_date "期限日"
-        VARCHAR assigned_to "担当者"
+        DECIMAL estimated_hours "見積時間"
+        DECIMAL actual_hours "実績時間"
+        INTEGER version "楽観的ロック用"
+        TIMESTAMP deleted_at "ソフトデリート"
         TIMESTAMP created_at "作成日時"
         TIMESTAMP updated_at "更新日時"
     }
 
-    %% ============================================================================
     %% タスク・部品関連（使用数量付き）
-    %% ============================================================================
     task_parts {
         UUID id PK "主キー"
         UUID tenant_id FK "テナントID"
@@ -81,78 +95,227 @@ erDiagram
         TIMESTAMP created_at "作成日時"
     }
 
-    %% ============================================================================
-    %% カスタムフィールド定義（EAVパターン - Attribute）
-    %% テナントごとに独自の入力項目を定義
-    %% ============================================================================
+    %% カスタムフィールド定義（EAVパターン）
     custom_field_definitions {
         UUID id PK "主キー"
         UUID tenant_id FK "テナントID"
         VARCHAR field_name "フィールド名"
-        ENUM field_type "データ型（text/number/date/boolean/select）"
+        ENUM field_type "データ型"
         BOOLEAN is_required "必須フラグ"
         INTEGER display_order "表示順"
-        JSONB options "選択肢（select型の場合）"
+        JSONB options "選択肢"
         TIMESTAMP created_at "作成日時"
         TIMESTAMP updated_at "更新日時"
     }
 
-    %% ============================================================================
-    %% カスタムフィールド値（EAVパターン - Value）
-    %% 各タスクに対するカスタムフィールドの値を格納
-    %% ============================================================================
+    %% カスタムフィールド値
     custom_field_values {
         UUID id PK "主キー"
         UUID tenant_id FK "テナントID"
         UUID task_id FK "タスクID"
-        UUID field_definition_id FK "フィールド定義ID"
+        UUID field_definition_id FK "定義ID"
         TEXT value "値"
         TIMESTAMP created_at "作成日時"
         TIMESTAMP updated_at "更新日時"
     }
 
-    %% ============================================================================
-    %% タスクコメント【課題2: 追加機能】
-    %% 作業履歴・引き継ぎ事項を時系列で記録
-    %% ============================================================================
+    %% タスクコメント【課題2】
     task_comments {
         UUID id PK "主キー"
         UUID tenant_id FK "テナントID"
         UUID task_id FK "タスクID"
+        UUID user_id FK "ユーザーID"
         VARCHAR commented_by "投稿者名"
         TEXT comment "コメント内容"
+        TIMESTAMP deleted_at "ソフトデリート"
         TIMESTAMP created_at "作成日時"
         TIMESTAMP updated_at "更新日時"
-        TIMESTAMP deleted_at "削除日時（ソフトデリート）"
     }
 
     %% ============================================================================
-    %% リレーションシップ
+    %% SECTION 2: エンタープライズテーブル（高度機能）
     %% ============================================================================
 
-    %% テナントとの関連（マルチテナント）
+    %% ユーザー管理（RBAC対応）
+    users {
+        UUID id PK "主キー"
+        UUID tenant_id FK "テナントID"
+        VARCHAR email "メールアドレス"
+        VARCHAR password_hash "パスワードハッシュ"
+        VARCHAR display_name "表示名"
+        VARCHAR employee_id "社員番号"
+        VARCHAR department "部署"
+        ENUM role "ロール（admin/manager/operator/viewer）"
+        ENUM status "ステータス"
+        BOOLEAN mfa_enabled "MFA有効"
+        INTEGER failed_login_count "ログイン失敗回数"
+        TIMESTAMP locked_until "ロック解除日時"
+        TIMESTAMP last_login_at "最終ログイン"
+        INTEGER version "楽観的ロック用"
+        TIMESTAMP deleted_at "ソフトデリート"
+        TIMESTAMP created_at "作成日時"
+        TIMESTAMP updated_at "更新日時"
+    }
+
+    %% 監査ログ（不変・コンプライアンス用）
+    audit_logs {
+        BIGSERIAL id PK "主キー"
+        VARCHAR table_name "テーブル名"
+        UUID record_id "レコードID"
+        UUID tenant_id FK "テナントID"
+        ENUM operation "操作種別"
+        JSONB old_values "変更前"
+        JSONB new_values "変更後"
+        TEXT changed_fields "変更フィールド"
+        UUID performed_by FK "実行者ID"
+        VARCHAR performed_by_name "実行者名"
+        INET ip_address "IPアドレス"
+        UUID request_id "リクエストID"
+        VARCHAR year_month "パーティション用"
+        TIMESTAMP performed_at "実行日時"
+    }
+
+    %% セキュリティイベント
+    security_events {
+        BIGSERIAL id PK "主キー"
+        ENUM event_type "イベント種別"
+        UUID tenant_id FK "テナントID"
+        UUID user_id FK "ユーザーID"
+        INET ip_address "IPアドレス"
+        VARCHAR severity "重要度"
+        JSONB details "詳細"
+        VARCHAR year_month "パーティション用"
+        TIMESTAMP event_time "発生日時"
+    }
+
+    %% APIキー管理
+    api_keys {
+        UUID id PK "主キー"
+        UUID tenant_id FK "テナントID"
+        UUID user_id FK "ユーザーID"
+        VARCHAR key_prefix "キープレフィックス"
+        VARCHAR key_hash "キーハッシュ"
+        VARCHAR name "名前"
+        TEXT scopes "スコープ"
+        INET allowed_ips "許可IP"
+        BIGINT usage_count "使用回数"
+        BOOLEAN is_active "有効フラグ"
+        TIMESTAMP expires_at "有効期限"
+        TIMESTAMP last_used_at "最終使用日時"
+        TIMESTAMP created_at "作成日時"
+    }
+
+    %% セッション管理
+    user_sessions {
+        UUID id PK "主キー"
+        UUID tenant_id FK "テナントID"
+        UUID user_id FK "ユーザーID"
+        VARCHAR session_token_hash "トークンハッシュ"
+        VARCHAR device_fingerprint "デバイス識別子"
+        INET ip_address "IPアドレス"
+        BOOLEAN is_active "有効フラグ"
+        TIMESTAMP expires_at "有効期限"
+        TIMESTAMP last_activity_at "最終アクティビティ"
+        TIMESTAMP created_at "作成日時"
+    }
+
+    %% 失敗ログイン追跡
+    failed_login_attempts {
+        BIGSERIAL id PK "主キー"
+        UUID tenant_id FK "テナントID"
+        VARCHAR email "メールアドレス"
+        INET ip_address "IPアドレス"
+        VARCHAR failure_reason "失敗理由"
+        TIMESTAMP attempted_at "試行日時"
+    }
+
+    %% IPブロックリスト
+    ip_blocklist {
+        UUID id PK "主キー"
+        INET ip_address "IPアドレス"
+        CIDR ip_range "IPレンジ"
+        VARCHAR reason "理由"
+        BOOLEAN is_active "有効フラグ"
+        TIMESTAMP blocked_at "ブロック日時"
+        TIMESTAMP expires_at "有効期限"
+    }
+
+    %% パスワードポリシー
+    password_policies {
+        UUID id PK "主キー"
+        UUID tenant_id FK "テナントID"
+        INTEGER min_length "最小長"
+        INTEGER max_length "最大長"
+        BOOLEAN require_uppercase "大文字必須"
+        BOOLEAN require_numbers "数字必須"
+        BOOLEAN require_special "特殊文字必須"
+        INTEGER password_history_count "履歴保持数"
+        INTEGER max_age_days "有効期限日数"
+        INTEGER max_failed_attempts "最大失敗回数"
+        BOOLEAN require_mfa "MFA必須"
+        TIMESTAMP created_at "作成日時"
+        TIMESTAMP updated_at "更新日時"
+    }
+
+    %% レート制限設定
+    rate_limit_configs {
+        UUID id PK "主キー"
+        UUID tenant_id FK "テナントID"
+        VARCHAR endpoint_pattern "エンドポイント"
+        INTEGER requests_per_minute "分間リクエスト数"
+        INTEGER requests_per_hour "時間リクエスト数"
+        INTEGER burst_size "バーストサイズ"
+        BOOLEAN is_active "有効フラグ"
+        TIMESTAMP created_at "作成日時"
+    }
+
+    %% パスワード履歴
+    password_history {
+        UUID id PK "主キー"
+        UUID user_id FK "ユーザーID"
+        VARCHAR password_hash "パスワードハッシュ"
+        TIMESTAMP created_at "作成日時"
+    }
+
+    %% ============================================================================
+    %% リレーションシップ - 基本
+    %% ============================================================================
+
     tenants ||--o{ equipments : "has"
     tenants ||--o{ parts : "has"
     tenants ||--o{ tasks : "has"
+    tenants ||--o{ users : "has"
     tenants ||--o{ custom_field_definitions : "defines"
 
-    %% 設備の階層構造（自己参照）
     equipments ||--o{ equipments : "parent-child"
-
-    %% 設備・部品の多対多関連
-    equipments ||--o{ equipment_parts : "related to"
-    parts ||--o{ equipment_parts : "related to"
-
-    %% タスクと設備の関連
+    equipments ||--o{ equipment_parts : "related"
     equipments ||--o{ tasks : "has"
 
-    %% タスクと部品の関連（使用部品）
-    tasks ||--o{ task_parts : "uses"
+    parts ||--o{ equipment_parts : "related"
     parts ||--o{ task_parts : "used in"
 
-    %% カスタムフィールド（EAVパターン）
-    tasks ||--o{ custom_field_values : "has values"
+    tasks ||--o{ task_parts : "uses"
+    tasks ||--o{ custom_field_values : "has"
+    tasks ||--o{ task_comments : "has"
+
     custom_field_definitions ||--o{ custom_field_values : "defines"
 
-    %% タスクコメント【課題2】
-    tasks ||--o{ task_comments : "has comments"
+    %% ============================================================================
+    %% リレーションシップ - エンタープライズ
+    %% ============================================================================
+
+    users ||--o{ tasks : "assigned to"
+    users ||--o{ tasks : "created by"
+    users ||--o{ task_comments : "comments"
+    users ||--o{ audit_logs : "performs"
+    users ||--o{ security_events : "triggers"
+    users ||--o{ api_keys : "owns"
+    users ||--o{ user_sessions : "has"
+    users ||--o{ password_history : "has"
+
+    tenants ||--o{ audit_logs : "logs"
+    tenants ||--o{ security_events : "monitors"
+    tenants ||--o{ api_keys : "manages"
+    tenants ||--o{ user_sessions : "tracks"
+    tenants ||--o{ password_policies : "configures"
+    tenants ||--o{ rate_limit_configs : "limits"
