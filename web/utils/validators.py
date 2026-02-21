@@ -18,10 +18,27 @@ from typing import Any, Callable, TypeVar
 
 from flask import jsonify, request
 
+from core.exceptions import OptimisticLockError
+
 F = TypeVar("F", bound=Callable[..., Any])
 
 DEFAULT_PAGE_SIZE = 20
 MAX_PAGE_SIZE = 100
+
+__all__ = [
+    "DEFAULT_PAGE_SIZE",
+    "MAX_PAGE_SIZE",
+    "PaginationParams",
+    "is_valid_uuid",
+    "validate_uuid",
+    "validate_required_fields",
+    "sanitize_string",
+    "OptimisticLockError",
+    "validate_version",
+    "build_optimistic_update",
+    "get_request_user_context",
+    "build_pagination_response",
+]
 
 
 @dataclass
@@ -135,12 +152,6 @@ def sanitize_string(value: str | None, max_length: int = 255) -> str | None:
     if value is None:
         return None
     return str(value).strip()[:max_length]
-
-
-class OptimisticLockError(Exception):
-    """Optimistic lock conflict error."""
-
-    pass
 
 
 def validate_version(data: dict[str, Any], field: str = "version") -> int | None:

@@ -1,5 +1,6 @@
 """Utilities module for M2X Task Management System."""
 
+from core.exceptions import DatabaseError, OptimisticLockError, RateLimitError
 from utils.security import (
     SecurityEventLogger,
     check_password_strength,
@@ -18,7 +19,6 @@ from utils.security import (
 from utils.validators import (
     DEFAULT_PAGE_SIZE,
     MAX_PAGE_SIZE,
-    OptimisticLockError,
     PaginationParams,
     build_optimistic_update,
     build_pagination_response,
@@ -53,9 +53,12 @@ __all__ = [
     "validate_uuid",
     "validate_required_fields",
     "sanitize_string",
-    "OptimisticLockError",
     "validate_version",
     "build_optimistic_update",
     "get_request_user_context",
     "build_pagination_response",
+    # Exceptions (re-exported from core.exceptions)
+    "OptimisticLockError",
+    "DatabaseError",
+    "RateLimitError",
 ]

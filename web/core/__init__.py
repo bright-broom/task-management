@@ -4,9 +4,11 @@ from core.config import Config, get_config
 from core.exceptions import (
     AuthenticationError,
     AuthorizationError,
+    DatabaseError,
     M2XError,
     NotFoundError,
     OptimisticLockError,
+    RateLimitError,
     ValidationError,
 )
 
@@ -19,4 +21,6 @@ __all__ = [
     "AuthenticationError",
     "AuthorizationError",
     "OptimisticLockError",
+    "DatabaseError",
+    "RateLimitError",
 ]
