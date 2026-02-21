@@ -19,10 +19,10 @@ Security:
 
 from __future__ import annotations
 
-import os
 from typing import Any
 
 import psycopg2
+from core import get_config
 from database import get_db_connection, get_db_cursor, tenant_context
 from flask import Flask, Response, jsonify, render_template
 from logging_config import configure_logging, get_logger, setup_flask_logging
@@ -30,10 +30,12 @@ from metrics import init_metrics, metrics_endpoint
 from security import init_security, rate_limit
 from validators import PaginationParams, build_pagination_response, validate_uuid
 
+config = get_config()
+
 app = Flask(__name__)
-app.config["JSON_AS_ASCII"] = False
-app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", os.urandom(32).hex())
-app.config["SECURITY_DB_LOGGING"] = os.environ.get("SECURITY_DB_LOGGING", "false").lower() == "true"
+app.config["JSON_AS_ASCII"] = config.json_as_ascii
+app.config["SECRET_KEY"] = config.security.secret_key
+app.config["SECURITY_DB_LOGGING"] = config.logging.db_logging
 
 init_security(app)
 init_metrics(app)
@@ -230,10 +232,8 @@ def get_parts(tenant_id: str) -> Response:
     return jsonify(build_pagination_response(parts, pagination, total))
 
 
-DEBUG_MODE = os.environ.get("FLASK_DEBUG", "false").lower() == "true"
-
-if DEBUG_MODE:
+if config.debug:
     logger.warning("DEBUG MODE IS ENABLED - DO NOT USE IN PRODUCTION")
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=DEBUG_MODE)  # nosec B104
+    app.run(host="0.0.0.0", port=5000, debug=config.debug)  # nosec B104
