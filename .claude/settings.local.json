@@ -33,7 +33,9 @@
       "Bash(git pull:*)",
       "Bash(python:*)",
       "Bash(DATABASE_URL=\"postgresql://m2x_user:m2x_password@localhost:5432/m2x_db\" python -m pytest:*)",
-      "Bash(python3:*)"
+      "Bash(python3:*)",
+      "Bash(ls:*)",
+      "Bash(DATABASE_URL=\"postgresql://m2x_user:m2x_password@localhost:5432/m2x_db\" python:*)"
     ]
   }
 }
