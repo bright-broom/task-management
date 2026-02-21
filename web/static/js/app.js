@@ -158,6 +158,18 @@
     }
 
     // ==========================================================================
+    // State Management
+    // ==========================================================================
+
+    function resetSelectionState() {
+        state.selectedTaskId = null;
+        const taskDetails = $id("taskDetails");
+        if (taskDetails) {
+            taskDetails.innerHTML = UI.empty("左側のリストからタスクを選択してください", "inbox");
+        }
+    }
+
+    // ==========================================================================
     // API Communication
     // ==========================================================================
 
@@ -901,15 +913,8 @@
         if (tenantSelect) {
             tenantSelect.addEventListener("change", (e) => {
                 state.currentTenant = e.target.value;
-                state.selectedTaskId = null;
                 state.cache.clear();
-
-                // Clear task details panel when tenant changes
-                const taskDetails = $id("taskDetails");
-                if (taskDetails) {
-                    taskDetails.innerHTML = UI.empty("左側のリストからタスクを選択してください", "inbox");
-                }
-
+                resetSelectionState();
                 loadAllData();
             });
         }
