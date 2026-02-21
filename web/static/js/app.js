@@ -161,6 +161,10 @@
         }
     }
 
+    function extractItems(response) {
+        return response.items || response;
+    }
+
     // ==========================================================================
     // API Communication
     // ==========================================================================
@@ -354,10 +358,6 @@
             return `<tr><td colspan="${colspan}" class="px-4 py-8 text-center text-gray-400">${escapeHtml(message)}</td></tr>`;
         },
     };
-
-    function extractItems(response) {
-        return response.items || response;
-    }
 
     async function loadListData({ containerId, apiUrl, loadingKey, template, emptyMessage, isTable = false, tableColspan = 0 }) {
         const container = $id(containerId);
