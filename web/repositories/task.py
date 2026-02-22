@@ -101,7 +101,7 @@ class TaskRepository(BaseRepository):
             data.get("equipment_id"),
             data.get("title"),
             data.get("description"),
-            data.get("status", "open"),
+            data.get("status", "todo"),
             data.get("priority", "medium"),
             data.get("category", "maintenance"),
             data.get("assigned_to"),
