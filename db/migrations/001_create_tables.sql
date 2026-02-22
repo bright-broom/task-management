@@ -139,11 +139,12 @@ COMMENT ON TABLE equipment_parts IS '設備と部品の多対多関連テーブ�
 -- tasks: タスク管理
 -- ============================================================================
 -- 工場での作業タスクを管理。設備に紐づけて登録し、後から集計可能
+-- NOTE: equipment_id は任意項目（課題要件では設備は必須項目ではない）
 
 CREATE TABLE tasks (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-    equipment_id UUID NOT NULL REFERENCES equipments(id) ON DELETE RESTRICT,
+    equipment_id UUID REFERENCES equipments(id) ON DELETE SET NULL,
     title VARCHAR(255) NOT NULL,
     description TEXT,
     status task_status NOT NULL DEFAULT 'todo',
@@ -154,11 +155,12 @@ CREATE TABLE tasks (
 );
 
 CREATE INDEX idx_tasks_tenant ON tasks(tenant_id);
-CREATE INDEX idx_tasks_equipment ON tasks(tenant_id, equipment_id);
+CREATE INDEX idx_tasks_equipment ON tasks(tenant_id, equipment_id) WHERE equipment_id IS NOT NULL;
 CREATE INDEX idx_tasks_status ON tasks(tenant_id, status);
 CREATE INDEX idx_tasks_due_date ON tasks(tenant_id, due_date);
 
-COMMENT ON TABLE tasks IS 'タスク管理テーブル。設備に紐づいた作業を管理';
+COMMENT ON TABLE tasks IS 'タスク管理テーブル。設備への紐づけは任意';
+COMMENT ON COLUMN tasks.equipment_id IS '設備ID（任意）。NULLの場合は設備に紐づかないタスク';
 COMMENT ON COLUMN tasks.status IS 'タスクステータス: todo（未着手）, in_progress（進行中）, done（完了）';
 COMMENT ON COLUMN tasks.assigned_to IS '担当者名';
 
