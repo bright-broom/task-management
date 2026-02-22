@@ -582,12 +582,6 @@ def validate_email(email: str) -> bool:
     return bool(re.match(pattern, email)) and len(email) <= 254
 
 
-def validate_uuid(value: str) -> bool:
-    """Validate UUID format."""
-    pattern = r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
-    return bool(re.match(pattern, value.lower()))
-
-
 class SecurityEventLogger:
     """Security event logger for audit and monitoring."""
 
