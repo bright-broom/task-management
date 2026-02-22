@@ -31,7 +31,40 @@ from typing import Any, Callable, TypeVar
 import jwt
 from flask import Flask, Response, g, jsonify, request
 
-JWT_SECRET_KEY = os.environ.get("JWT_SECRET_KEY", secrets.token_hex(32))
+def _get_jwt_secret() -> str:
+    """Get JWT secret key from environment.
+
+    CRITICAL: In production, JWT_SECRET_KEY must be explicitly set.
+    A random fallback is only used in development to allow the app to start,
+    but will cause token verification failures in multi-process deployments.
+    """
+    secret = os.environ.get("JWT_SECRET_KEY")
+    if secret:
+        return secret
+
+    # Development fallback - warn loudly
+    is_production = os.environ.get("FLASK_ENV") == "production"
+    is_testing = os.environ.get("TESTING", "false").lower() == "true"
+
+    if is_production:
+        raise RuntimeError(
+            "CRITICAL: JWT_SECRET_KEY environment variable must be set in production. "
+            "Generate with: python -c \"import secrets; print(secrets.token_hex(32))\""
+        )
+
+    if not is_testing:
+        import warnings
+        warnings.warn(
+            "JWT_SECRET_KEY not set - using random key. "
+            "This will break token verification across restarts/processes.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+
+    return secrets.token_hex(32)
+
+
+JWT_SECRET_KEY = _get_jwt_secret()
 JWT_ALGORITHM = "HS256"
 JWT_ACCESS_TOKEN_EXPIRES = timedelta(hours=1)
 JWT_REFRESH_TOKEN_EXPIRES = timedelta(days=7)

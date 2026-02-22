@@ -49,13 +49,40 @@ class PaginationParams:
     sort_by: str | None = None
     sort_order: str = "asc"
 
+    # Valid sort columns to prevent SQL injection
+    VALID_SORT_COLUMNS: frozenset[str] = frozenset(
+        {
+            "id",
+            "name",
+            "title",
+            "status",
+            "priority",
+            "category",
+            "created_at",
+            "updated_at",
+            "due_date",
+            "completed_at",
+            "stock_quantity",
+            "reorder_point",
+            "display_order",
+            "depth",
+        }
+    )
+
     @classmethod
     def from_request(
         cls,
         default_sort: str | None = None,
         default_order: str = "desc",
+        allowed_sort_columns: frozenset[str] | None = None,
     ) -> PaginationParams:
-        """Extract pagination parameters from request args."""
+        """Extract pagination parameters from request args.
+
+        Args:
+            default_sort: Default sort column if not specified in request
+            default_order: Default sort order ('asc' or 'desc')
+            allowed_sort_columns: Override allowed columns (defaults to VALID_SORT_COLUMNS)
+        """
         try:
             page = max(1, int(request.args.get("page", 1)))
         except (ValueError, TypeError):
@@ -68,12 +95,36 @@ class PaginationParams:
         except (ValueError, TypeError):
             per_page = DEFAULT_PAGE_SIZE
 
-        sort_by = request.args.get("sort_by", default_sort)
+        allowed = allowed_sort_columns or cls.VALID_SORT_COLUMNS
+        sort_by_raw = request.args.get("sort_by", default_sort)
+        # Validate sort_by against whitelist to prevent SQL injection
+        sort_by = sort_by_raw if sort_by_raw in allowed else default_sort
+
         sort_order = request.args.get("sort_order", default_order)
         if sort_order not in ("asc", "desc"):
             sort_order = default_order
 
         return cls(page=page, per_page=per_page, sort_by=sort_by, sort_order=sort_order)
+
+    def get_order_clause(self, column_mapping: dict[str, str] | None = None) -> str:
+        """Build safe ORDER BY clause.
+
+        Args:
+            column_mapping: Optional mapping from API column names to SQL column names
+                            e.g., {"name": "t.name", "created_at": "t.created_at"}
+
+        Returns:
+            SQL ORDER BY clause without 'ORDER BY' prefix, e.g., 't.created_at DESC'
+        """
+        if not self.sort_by:
+            return ""
+
+        # Map to actual SQL column if mapping provided
+        sql_column = self.sort_by
+        if column_mapping and self.sort_by in column_mapping:
+            sql_column = column_mapping[self.sort_by]
+
+        return f"{sql_column} {self.sort_order.upper()}"
 
     @property
     def offset(self) -> int:

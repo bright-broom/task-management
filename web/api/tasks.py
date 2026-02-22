@@ -151,21 +151,41 @@ def get_task(tenant_id: str, task_id: str) -> tuple[Response, int]:
     return jsonify(task), 200
 
 
-@tasks_bp.route("/api/tasks/<task_id>/details")
+@tasks_bp.route("/api/tenants/<tenant_id>/tasks/<task_id>/details")
+@tasks_bp.route("/api/tasks/<task_id>/details")  # Legacy route (deprecated)
 @validate_uuid("task_id")
-def get_task_details(task_id: str) -> Response | tuple[Response, int]:
-    """Get task with custom fields, parts, and comments."""
+def get_task_details(
+    task_id: str, tenant_id: str | None = None
+) -> Response | tuple[Response, int]:
+    """Get task with custom fields, parts, and comments.
+
+    Security Note: The legacy route /api/tasks/<task_id>/details is deprecated.
+    Use /api/tenants/<tenant_id>/tasks/<task_id>/details for proper tenant isolation.
+    """
     with get_db_connection() as conn:
         with get_db_cursor(conn) as cur:
-            cur.execute(
-                """
+            # Build query with optional tenant filter
+            query = """
                 SELECT t.*, e.name AS equipment_name
                 FROM tasks t
                 LEFT JOIN equipments e ON t.equipment_id = e.id
                 WHERE t.id = %s AND t.deleted_at IS NULL
-            """,
-                (task_id,),
-            )
+            """
+            params: tuple[str, ...] = (task_id,)
+
+            # If tenant_id provided, enforce tenant isolation
+            if tenant_id:
+                if not is_valid_uuid(tenant_id):
+                    return jsonify({"error": "Invalid tenant_id format"}), 400
+                query = """
+                    SELECT t.*, e.name AS equipment_name
+                    FROM tasks t
+                    LEFT JOIN equipments e ON t.equipment_id = e.id
+                    WHERE t.id = %s AND t.tenant_id = %s AND t.deleted_at IS NULL
+                """
+                params = (task_id, tenant_id)
+
+            cur.execute(query, params)
             task = cur.fetchone()
 
             if not task:
