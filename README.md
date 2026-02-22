@@ -377,6 +377,50 @@ CREATE TRIGGER prevent_audit_log_update
 | **クロステナント制約** | トリガーによる親子関係の整合性保証 |
 | **JSONバリデーション** | カスタムフィールド値の型チェック |
 
+### API入力バリデーション
+
+#### null/undefined のセマンティクス
+
+APIでは `null` の意味をフィールドの種類によって明確に区別しています。
+
+| フィールド種別 | `null` の意味 | 動作 |
+|---------------|--------------|------|
+| **必須フィールド** (`title`) | 前提違反 | 400 Bad Request |
+| **Enumフィールド** (`status`, `priority`, `category`) | 前提違反 | 400 Bad Request |
+| **オプショナルフィールド** (`equipment_id`, `description`, `due_date`) | 有効な状態（"値なし"） | 許可 |
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    null の解釈                               │
+├─────────────────────────────────────────────────────────────┤
+│  Required field (title)                                     │
+│    → null = 前提違反 ("title cannot be null")               │
+│                                                             │
+│  Enum field (status, priority, category)                    │
+│    → null = 前提違反 ("status cannot be null")              │
+│    → 省略時はデフォルト値を適用                              │
+│                                                             │
+│  Optional field (equipment_id, description)                 │
+│    → null = 有効な状態 ("設備なし", "説明なし")              │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**重要:** JSON の `{"status": null}` と `{}` は異なる挙動を持ちます:
+- `{}` (キー不在): デフォルト値 `"todo"` を適用
+- `{"status": null}` (明示的null): 400エラーを返却
+
+#### ソフトデリートの一貫性
+
+全ての読み取りAPIは `deleted_at IS NULL` でフィルタリングされます。
+
+| エンドポイント | 動作 |
+|---------------|------|
+| `GET /api/tenants` | 削除済みテナントを除外 |
+| `GET /api/tenants/:id/tasks` | 削除済みタスクを除外 |
+| `GET /api/tenants/:id/equipments` | 削除済み設備を除外（階層CTE含む） |
+| `GET /api/tenants/:id/parts` | 削除済み部品を除外 |
+| `POST /api/tasks/:id/comments` | 削除済みタスクへのコメント拒否 (404) |
+
 ---
 
 ## 前提条件・仮定事項
