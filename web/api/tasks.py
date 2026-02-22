@@ -168,7 +168,7 @@ def get_task_details(task_id: str) -> Response:
             task = cur.fetchone()
 
             if not task:
-                return jsonify({"task": None, "custom_fields": [], "parts": [], "comments": []})
+                return jsonify({"error": "Task not found"}), 404
 
             cur.execute("SET app.current_tenant_id = %s", (str(task["tenant_id"]),))
 
@@ -236,6 +236,9 @@ def create_task(tenant_id: str) -> tuple[Response, int]:
     if equipment_id is not None and not is_valid_uuid(equipment_id):
         return jsonify({"error": "Invalid equipment_id format"}), 400
 
+    # status: explicit null is a precondition violation, missing key gets default
+    if "status" in data and data["status"] is None:
+        return jsonify({"error": "status cannot be null"}), 400
     status = data.get("status", "todo")
     if status not in VALID_TASK_STATUSES:
         return (
@@ -243,6 +246,9 @@ def create_task(tenant_id: str) -> tuple[Response, int]:
             400,
         )
 
+    # priority: explicit null is a precondition violation, missing key gets default
+    if "priority" in data and data["priority"] is None:
+        return jsonify({"error": "priority cannot be null"}), 400
     priority = data.get("priority", "medium")
     if priority not in VALID_TASK_PRIORITIES:
         return (
@@ -252,6 +258,9 @@ def create_task(tenant_id: str) -> tuple[Response, int]:
             400,
         )
 
+    # category: explicit null is a precondition violation, missing key gets default
+    if "category" in data and data["category"] is None:
+        return jsonify({"error": "category cannot be null"}), 400
     category = data.get("category", "maintenance")
     if category not in VALID_TASK_CATEGORIES:
         return (
@@ -345,14 +354,23 @@ def update_task(task_id: str) -> tuple[Response, int]:
     params: list[Any] = []
 
     if "title" in data:
+        # title is required - null is a precondition violation
+        if data["title"] is None:
+            return jsonify({"error": "title cannot be null"}), 400
+        sanitized_title = sanitize_string(data["title"])
+        if not sanitized_title:
+            return jsonify({"error": "title cannot be empty"}), 400
         updates.append("title = %s")
-        params.append(sanitize_string(data["title"]))
+        params.append(sanitized_title)
 
     if "description" in data:
         updates.append("description = %s")
         params.append(sanitize_string(data["description"], max_length=2000))
 
     if "status" in data:
+        # status is an enum - null is a precondition violation
+        if data["status"] is None:
+            return jsonify({"error": "status cannot be null"}), 400
         if data["status"] not in VALID_TASK_STATUSES:
             return (
                 jsonify(
@@ -375,6 +393,9 @@ def update_task(task_id: str) -> tuple[Response, int]:
     v2_params: list[Any] = []
 
     if "priority" in data:
+        # priority is an enum - null is a precondition violation
+        if data["priority"] is None:
+            return jsonify({"error": "priority cannot be null"}), 400
         if data["priority"] not in VALID_TASK_PRIORITIES:
             return (
                 jsonify(
@@ -389,6 +410,9 @@ def update_task(task_id: str) -> tuple[Response, int]:
         v2_params.append(data["priority"])
 
     if "category" in data:
+        # category is an enum - null is a precondition violation
+        if data["category"] is None:
+            return jsonify({"error": "category cannot be null"}), 400
         if data["category"] not in VALID_TASK_CATEGORIES:
             return (
                 jsonify(

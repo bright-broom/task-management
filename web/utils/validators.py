@@ -116,7 +116,13 @@ def validate_uuid(param_name: str) -> Callable[[F], F]:
 
 
 def validate_required_fields(required: list[str]) -> Callable[[F], F]:
-    """Decorator to validate required JSON fields."""
+    """Decorator to validate required JSON fields.
+
+    Validates that required fields are:
+    - Present in the request body
+    - Not None (explicit null is a precondition violation)
+    - Not empty/whitespace-only strings
+    """
 
     def decorator(f: F) -> F:
         @wraps(f)
@@ -128,13 +134,30 @@ def validate_required_fields(required: list[str]) -> Callable[[F], F]:
             if not data:
                 return jsonify({"error": "Request body is required"}), 400
 
-            missing = [field for field in required if field not in data or data[field] is None]
+            missing = []
+            empty = []
+            for field in required:
+                if field not in data or data[field] is None:
+                    missing.append(field)
+                elif isinstance(data[field], str) and not data[field].strip():
+                    empty.append(field)
+
             if missing:
                 return (
                     jsonify(
                         {
                             "error": "Missing required fields",
                             "fields": missing,
+                        }
+                    ),
+                    400,
+                )
+            if empty:
+                return (
+                    jsonify(
+                        {
+                            "error": "Required fields cannot be empty",
+                            "fields": empty,
                         }
                     ),
                     400,

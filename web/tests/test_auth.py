@@ -330,6 +330,110 @@ class TestTaskCRUD:
         )
         assert response.status_code == 400
 
+    # ========================================================================
+    # Null/Empty validation tests - precondition violation detection
+    # ========================================================================
+
+    def test_update_task_null_title_rejected(self, client, sample_task_id):
+        """Test that explicit null for title is rejected as precondition violation."""
+        if sample_task_id is None:
+            pytest.skip("No task available for testing")
+
+        response = client.patch(
+            f"/api/tasks/{sample_task_id}",
+            json={"title": None},
+            content_type="application/json",
+        )
+        assert response.status_code == 400
+        data = json.loads(response.data)
+        assert "title" in data["error"].lower() and "null" in data["error"].lower()
+
+    def test_update_task_empty_title_rejected(self, client, sample_task_id):
+        """Test that empty string for title is rejected."""
+        if sample_task_id is None:
+            pytest.skip("No task available for testing")
+
+        response = client.patch(
+            f"/api/tasks/{sample_task_id}",
+            json={"title": ""},
+            content_type="application/json",
+        )
+        assert response.status_code == 400
+        data = json.loads(response.data)
+        assert "title" in data["error"].lower() or "empty" in data["error"].lower()
+
+    def test_update_task_null_status_rejected(self, client, sample_task_id):
+        """Test that explicit null for status is rejected as precondition violation."""
+        if sample_task_id is None:
+            pytest.skip("No task available for testing")
+
+        response = client.patch(
+            f"/api/tasks/{sample_task_id}",
+            json={"status": None},
+            content_type="application/json",
+        )
+        assert response.status_code == 400
+        data = json.loads(response.data)
+        assert "status" in data["error"].lower() and "null" in data["error"].lower()
+
+    def test_update_task_null_priority_rejected(self, client, sample_task_id):
+        """Test that explicit null for priority is rejected as precondition violation."""
+        if sample_task_id is None:
+            pytest.skip("No task available for testing")
+
+        response = client.patch(
+            f"/api/tasks/{sample_task_id}",
+            json={"priority": None},
+            content_type="application/json",
+        )
+        assert response.status_code == 400
+        data = json.loads(response.data)
+        assert "priority" in data["error"].lower() and "null" in data["error"].lower()
+
+    def test_update_task_null_category_rejected(self, client, sample_task_id):
+        """Test that explicit null for category is rejected as precondition violation."""
+        if sample_task_id is None:
+            pytest.skip("No task available for testing")
+
+        response = client.patch(
+            f"/api/tasks/{sample_task_id}",
+            json={"category": None},
+            content_type="application/json",
+        )
+        assert response.status_code == 400
+        data = json.loads(response.data)
+        assert "category" in data["error"].lower() and "null" in data["error"].lower()
+
+    def test_create_task_whitespace_title_rejected(self, client):
+        """Test that whitespace-only title is rejected."""
+        response = client.post(
+            f"/api/tenants/{TEST_TENANT_ID}/tasks",
+            json={"title": "   "},
+            content_type="application/json",
+        )
+        assert response.status_code == 400
+        data = json.loads(response.data)
+        assert "empty" in data["error"].lower() or "title" in str(data).lower()
+
+    def test_create_task_null_status_rejected(self, client):
+        """Test that explicit null for status is rejected (not defaulted)."""
+        response = client.post(
+            f"/api/tenants/{TEST_TENANT_ID}/tasks",
+            json={"title": "Test Task", "status": None},
+            content_type="application/json",
+        )
+        assert response.status_code == 400
+        data = json.loads(response.data)
+        assert "status" in data["error"].lower() and "null" in data["error"].lower()
+
+    def test_get_task_details_not_found_returns_404(self, client):
+        """Test that get_task_details returns 404 for non-existent task."""
+        fake_task_id = "99999999-9999-9999-9999-999999999999"
+        response = client.get(f"/api/tasks/{fake_task_id}/details")
+        assert response.status_code == 404
+        data = json.loads(response.data)
+        assert "error" in data
+
 
 class TestCommentEndpoints:
     """Test comment-related endpoints."""
