@@ -154,7 +154,8 @@ def get_equipments(tenant_id: str) -> Response:
         with tenant_context(conn, tenant_id) as cur:
             # Filter out soft-deleted equipments
             cur.execute(
-                "SELECT COUNT(*) as count FROM equipments WHERE tenant_id = %s AND deleted_at IS NULL",
+                """SELECT COUNT(*) as count FROM equipments
+                   WHERE tenant_id = %s AND deleted_at IS NULL""",
                 (tenant_id,),
             )
             total = cur.fetchone()["count"]

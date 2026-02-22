@@ -153,7 +153,7 @@ def get_task(tenant_id: str, task_id: str) -> tuple[Response, int]:
 
 @tasks_bp.route("/api/tasks/<task_id>/details")
 @validate_uuid("task_id")
-def get_task_details(task_id: str) -> Response:
+def get_task_details(task_id: str) -> Response | tuple[Response, int]:
     """Get task with custom fields, parts, and comments."""
     with get_db_connection() as conn:
         with get_db_cursor(conn) as cur:
@@ -282,7 +282,8 @@ def create_task(tenant_id: str) -> tuple[Response, int]:
             # Verify equipment exists if provided
             if equipment_id:
                 cur.execute(
-                    "SELECT id FROM equipments WHERE id = %s AND tenant_id = %s AND deleted_at IS NULL",
+                    """SELECT id FROM equipments
+                       WHERE id = %s AND tenant_id = %s AND deleted_at IS NULL""",
                     (equipment_id, tenant_id),
                 )
                 if not cur.fetchone():
