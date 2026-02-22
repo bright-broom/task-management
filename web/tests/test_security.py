@@ -67,14 +67,14 @@ class TestInputValidation:
         # Should not cause server error, just return empty or error
         assert response.status_code in [200, 400]
 
-    def test_xss_in_title_handled(self, client, sample_equipment_id):
+    def test_xss_in_title_handled(self, auth_client, sample_equipment_id):
         """Test that XSS in task title is handled."""
         if sample_equipment_id is None:
             pytest.skip("No equipment available for testing")
 
         # Create a task with XSS payload
         xss_payload = '<script>alert("xss")</script>'
-        response = client.post(
+        response = auth_client.post(
             f"/api/tenants/{TEST_TENANT_ID}/tasks",
             json={"title": xss_payload, "equipment_id": sample_equipment_id},
             content_type="application/json",
@@ -130,18 +130,18 @@ class TestErrorHandling:
         response = client.get(f"/api/tenants/{TEST_TENANT_ID}/tasks/{fake_task_id}")
         assert response.status_code == 404
 
-    def test_malformed_json_rejected(self, client):
+    def test_malformed_json_rejected(self, auth_client):
         """Test that malformed JSON is rejected."""
-        response = client.post(
+        response = auth_client.post(
             f"/api/tenants/{TEST_TENANT_ID}/tasks",
             data="not valid json{",
             content_type="application/json",
         )
         assert response.status_code == 400
 
-    def test_missing_required_fields_rejected(self, client):
+    def test_missing_required_fields_rejected(self, auth_client):
         """Test that missing required fields are rejected."""
-        response = client.post(
+        response = auth_client.post(
             f"/api/tenants/{TEST_TENANT_ID}/tasks",
             json={},  # Missing title and equipment_id
             content_type="application/json",
@@ -225,7 +225,7 @@ class TestTenantIsolation:
         for task in data["items"]:
             assert task.get("tenant_id") == TEST_TENANT_ID or "tenant_id" not in task
 
-    def test_cannot_create_task_for_other_tenant_equipment(self, client, db_cursor):
+    def test_cannot_create_task_for_other_tenant_equipment(self, auth_client, db_cursor):
         """Test that creating task with equipment from another tenant fails."""
         # Get equipment from tenant 2
         db_cursor.execute("""
@@ -239,7 +239,7 @@ class TestTenantIsolation:
         if result:
             other_tenant_equipment_id = str(result["id"])
             # Try to create task in tenant 1 with tenant 2's equipment
-            response = client.post(
+            response = auth_client.post(
                 f"/api/tenants/{TEST_TENANT_ID}/tasks",
                 json={"title": "Cross-tenant test", "equipment_id": other_tenant_equipment_id},
                 content_type="application/json",
@@ -519,3 +519,94 @@ class TestSwaggerDocumentation:
         assert "openapi" in data or "swagger" in data
         assert "info" in data
         assert "paths" in data
+
+
+class TestSortByValidation:
+    """Test sort_by parameter validation to prevent SQL injection."""
+
+    def test_valid_sort_column_accepted(self, app):
+        """Test that valid sort columns are accepted."""
+        from validators import PaginationParams
+
+        with app.test_request_context("/?sort_by=created_at"):
+            params = PaginationParams.from_request()
+            assert params.sort_by == "created_at"
+
+        with app.test_request_context("/?sort_by=name"):
+            params = PaginationParams.from_request()
+            assert params.sort_by == "name"
+
+        with app.test_request_context("/?sort_by=status"):
+            params = PaginationParams.from_request()
+            assert params.sort_by == "status"
+
+    def test_sql_injection_in_sort_by_rejected(self, app):
+        """Test that SQL injection attempts in sort_by are rejected."""
+        from validators import PaginationParams
+
+        # SQL injection attempt - should be rejected
+        with app.test_request_context("/?sort_by=name; DROP TABLE tasks; --"):
+            params = PaginationParams.from_request(default_sort="created_at")
+            # Should fall back to default, not use the malicious input
+            assert params.sort_by == "created_at"
+            assert "DROP" not in str(params.sort_by)
+
+    def test_invalid_column_falls_back_to_default(self, app):
+        """Test that invalid columns fall back to default."""
+        from validators import PaginationParams
+
+        with app.test_request_context("/?sort_by=nonexistent_column"):
+            params = PaginationParams.from_request(default_sort="id")
+            assert params.sort_by == "id"
+
+    def test_empty_sort_by_uses_default(self, app):
+        """Test that empty sort_by uses default."""
+        from validators import PaginationParams
+
+        with app.test_request_context("/?sort_by="):
+            params = PaginationParams.from_request(default_sort="created_at")
+            # Empty string not in whitelist, falls back to default
+            assert params.sort_by == "created_at"
+
+    def test_custom_allowed_columns(self, app):
+        """Test custom allowed columns override."""
+        from validators import PaginationParams
+
+        custom_columns = frozenset({"custom_field", "another_field"})
+        with app.test_request_context("/?sort_by=custom_field"):
+            params = PaginationParams.from_request(allowed_sort_columns=custom_columns)
+            assert params.sort_by == "custom_field"
+
+        # Standard column should be rejected with custom whitelist
+        with app.test_request_context("/?sort_by=created_at"):
+            params = PaginationParams.from_request(
+                default_sort="custom_field", allowed_sort_columns=custom_columns
+            )
+            assert params.sort_by == "custom_field"
+
+    def test_get_order_clause_basic(self, app):
+        """Test get_order_clause generates safe SQL."""
+        from validators import PaginationParams
+
+        with app.test_request_context("/?sort_by=created_at&sort_order=desc"):
+            params = PaginationParams.from_request()
+            clause = params.get_order_clause()
+            assert clause == "created_at DESC"
+
+    def test_get_order_clause_with_mapping(self, app):
+        """Test get_order_clause with column mapping."""
+        from validators import PaginationParams
+
+        with app.test_request_context("/?sort_by=name&sort_order=asc"):
+            params = PaginationParams.from_request()
+            clause = params.get_order_clause({"name": "t.name", "created_at": "t.created_at"})
+            assert clause == "t.name ASC"
+
+    def test_get_order_clause_empty_when_no_sort(self, app):
+        """Test get_order_clause returns empty string when no sort."""
+        from validators import PaginationParams
+
+        with app.test_request_context("/"):
+            params = PaginationParams.from_request()
+            clause = params.get_order_clause()
+            assert clause == ""

@@ -19,12 +19,11 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 
 class TaskStatus(str, Enum):
-    """Task status enumeration."""
+    """Task status enumeration matching DB schema."""
 
-    OPEN = "open"
+    TODO = "todo"
     IN_PROGRESS = "in_progress"
-    COMPLETED = "completed"
-    CANCELLED = "cancelled"
+    DONE = "done"
 
 
 class TaskPriority(str, Enum):
@@ -69,9 +68,9 @@ class TaskCreate(BaseSchema):
     """Schema for creating a new task."""
 
     title: str = Field(..., min_length=1, max_length=255, description="Task title")
-    equipment_id: UUID = Field(..., description="Equipment UUID")
+    equipment_id: UUID | None = Field(None, description="Equipment UUID (optional)")
     description: str | None = Field(None, max_length=2000, description="Task description")
-    status: TaskStatus = Field(default=TaskStatus.OPEN, description="Task status")
+    status: TaskStatus = Field(default=TaskStatus.TODO, description="Task status")
     priority: TaskPriority = Field(default=TaskPriority.MEDIUM, description="Task priority")
     category: TaskCategory = Field(default=TaskCategory.MAINTENANCE, description="Task category")
     assigned_to: str | None = Field(None, max_length=255, description="Assignee name")
@@ -104,7 +103,7 @@ class TaskResponse(BaseSchema):
 
     id: UUID
     tenant_id: UUID
-    equipment_id: UUID
+    equipment_id: UUID | None = None
     title: str
     description: str | None = None
     status: TaskStatus

@@ -48,16 +48,17 @@ ORDER BY total_used DESC;
 -- ============================================================================
 -- 3. タスク詳細（カスタムフィールド値を含む）の取得
 -- ============================================================================
+-- NOTE: LEFT JOINで設備なしタスクも表示
 \echo '=== タスク詳細（カスタムフィールド含む） ==='
 
 SELECT
     t.title,
     t.status,
-    e.name AS equipment_name,
+    COALESCE(e.name, '(設備なし)') AS equipment_name,
     cfd.field_name,
     cfv.value
 FROM tasks t
-JOIN equipments e ON t.equipment_id = e.id
+LEFT JOIN equipments e ON t.equipment_id = e.id
 LEFT JOIN custom_field_values cfv ON t.id = cfv.task_id
 LEFT JOIN custom_field_definitions cfd ON cfv.field_definition_id = cfd.id
 WHERE t.tenant_id = :tenant_id
@@ -66,18 +67,19 @@ ORDER BY t.created_at DESC, cfd.display_order;
 -- ============================================================================
 -- 4. タスクとカスタムフィールドをピボット形式で取得
 -- ============================================================================
+-- NOTE: LEFT JOINで設備なしタスクも表示
 \echo '=== タスク一覧（カスタムフィールドをピボット表示） ==='
 
 SELECT
     t.title,
     t.status,
-    e.name AS equipment_name,
+    COALESCE(e.name, '(設備なし)') AS equipment_name,
     MAX(CASE WHEN cfd.field_name = 'Cause of stoppage' THEN cfv.value END) AS cause_of_stoppage,
     MAX(CASE WHEN cfd.field_name = 'Repair details' THEN cfv.value END) AS repair_details,
     MAX(CASE WHEN cfd.field_name = 'Downtime (minutes)' THEN cfv.value END) AS downtime_minutes,
     MAX(CASE WHEN cfd.field_name = 'Requires follow-up' THEN cfv.value END) AS requires_followup
 FROM tasks t
-JOIN equipments e ON t.equipment_id = e.id
+LEFT JOIN equipments e ON t.equipment_id = e.id
 LEFT JOIN custom_field_values cfv ON t.id = cfv.task_id
 LEFT JOIN custom_field_definitions cfd ON cfv.field_definition_id = cfd.id
 WHERE t.tenant_id = :tenant_id
@@ -138,20 +140,21 @@ ORDER BY p.name;
 -- ============================================================================
 -- 7. 期限切れ・期限間近のタスク
 -- ============================================================================
+-- NOTE: LEFT JOINで設備なしタスクも表示
 \echo '=== 期限切れ・期限間近のタスク ==='
 
 SELECT
     t.title,
     t.status,
     t.due_date,
-    e.name AS equipment_name,
+    COALESCE(e.name, '(設備なし)') AS equipment_name,
     CASE
         WHEN t.due_date < CURRENT_DATE THEN '期限切れ'
         WHEN t.due_date <= CURRENT_DATE + INTERVAL '3 days' THEN '期限間近'
         ELSE '余裕あり'
     END AS urgency
 FROM tasks t
-JOIN equipments e ON t.equipment_id = e.id
+LEFT JOIN equipments e ON t.equipment_id = e.id
 WHERE t.tenant_id = :tenant_id
   AND t.status != 'done'
 ORDER BY t.due_date ASC;
@@ -190,13 +193,14 @@ ORDER BY task_count DESC;
 -- ============================================================================
 -- 10. ダウンタイム合計（数値型カスタムフィールドの集計）
 -- ============================================================================
+-- NOTE: LEFT JOINで設備なしタスクも集計（equipment_name = '(設備なし)'）
 \echo '=== 設備別ダウンタイム合計 ==='
 
 SELECT
-    e.name AS equipment_name,
+    COALESCE(e.name, '(設備なし)') AS equipment_name,
     COALESCE(SUM(cfv.value::INTEGER), 0) AS total_downtime_minutes
 FROM tasks t
-JOIN equipments e ON t.equipment_id = e.id
+LEFT JOIN equipments e ON t.equipment_id = e.id
 LEFT JOIN custom_field_definitions cfd ON cfd.tenant_id = t.tenant_id
     AND cfd.field_name = 'Downtime (minutes)'
 LEFT JOIN custom_field_values cfv ON t.id = cfv.task_id

@@ -43,6 +43,22 @@ class TestLoginEndpoint:
         data = json.loads(response.data)
         assert "required" in data["error"].lower()
 
+    def test_login_null_email_does_not_crash(self, client):
+        """Test login with null email doesn't crash (precondition violation)."""
+        response = client.post(
+            "/api/auth/login",
+            json={
+                "email": None,
+                "password": "password123",
+                "tenant_id": TEST_TENANT_ID,
+            },
+            content_type="application/json",
+        )
+        # Should return 400, not 500 (crash)
+        assert response.status_code == 400
+        data = json.loads(response.data)
+        assert "required" in data["error"].lower()
+
     def test_login_invalid_email_format(self, client):
         """Test login with invalid email format."""
         response = client.post(
@@ -107,6 +123,16 @@ class TestRefreshTokenEndpoint:
         data = json.loads(response.data)
         assert "token" in data["error"].lower()
 
+    def test_refresh_null_token_does_not_crash(self, client):
+        """Test refresh with null token doesn't crash (precondition violation)."""
+        response = client.post(
+            "/api/auth/refresh",
+            json={"refresh_token": None},
+            content_type="application/json",
+        )
+        # Should return 400, not 500 (crash)
+        assert response.status_code == 400
+
     def test_refresh_invalid_token(self, client):
         """Test refresh with invalid token."""
         response = client.post(
@@ -169,32 +195,32 @@ class TestTaskCRUD:
         response = client.get(f"/api/tenants/{TEST_TENANT_ID}/tasks/{fake_task_id}")
         assert response.status_code == 404
 
-    def test_update_task_no_content_type(self, client, sample_task_id):
+    def test_update_task_no_content_type(self, auth_client, sample_task_id):
         """Test update task without JSON content type."""
         if sample_task_id is None:
             pytest.skip("No task available for testing")
 
-        response = client.patch(f"/api/tasks/{sample_task_id}", data="not json")
+        response = auth_client.patch(f"/api/tasks/{sample_task_id}", data="not json")
         assert response.status_code == 400
 
-    def test_update_task_empty_body(self, client, sample_task_id):
+    def test_update_task_empty_body(self, auth_client, sample_task_id):
         """Test update task with empty body."""
         if sample_task_id is None:
             pytest.skip("No task available for testing")
 
-        response = client.patch(
+        response = auth_client.patch(
             f"/api/tasks/{sample_task_id}",
             data="",
             content_type="application/json",
         )
         assert response.status_code == 400
 
-    def test_update_task_no_fields(self, client, sample_task_id):
+    def test_update_task_no_fields(self, auth_client, sample_task_id):
         """Test update task with no fields to update."""
         if sample_task_id is None:
             pytest.skip("No task available for testing")
 
-        response = client.patch(
+        response = auth_client.patch(
             f"/api/tasks/{sample_task_id}",
             json={"version": 1},  # Only version, no actual fields to update
             content_type="application/json",
@@ -203,12 +229,12 @@ class TestTaskCRUD:
         data = json.loads(response.data)
         assert "No fields" in data["error"] or "field" in data["error"].lower()
 
-    def test_update_task_invalid_status(self, client, sample_task_id):
+    def test_update_task_invalid_status(self, auth_client, sample_task_id):
         """Test update task with invalid status."""
         if sample_task_id is None:
             pytest.skip("No task available for testing")
 
-        response = client.patch(
+        response = auth_client.patch(
             f"/api/tasks/{sample_task_id}",
             json={"status": "invalid_status"},
             content_type="application/json",
@@ -217,77 +243,77 @@ class TestTaskCRUD:
         data = json.loads(response.data)
         assert "status" in data["error"].lower()
 
-    def test_update_task_invalid_priority(self, client, sample_task_id):
+    def test_update_task_invalid_priority(self, auth_client, sample_task_id):
         """Test update task with invalid priority."""
         if sample_task_id is None:
             pytest.skip("No task available for testing")
 
-        response = client.patch(
+        response = auth_client.patch(
             f"/api/tasks/{sample_task_id}",
             json={"priority": "invalid_priority"},
             content_type="application/json",
         )
         assert response.status_code == 400
 
-    def test_update_task_invalid_category(self, client, sample_task_id):
+    def test_update_task_invalid_category(self, auth_client, sample_task_id):
         """Test update task with invalid category."""
         if sample_task_id is None:
             pytest.skip("No task available for testing")
 
-        response = client.patch(
+        response = auth_client.patch(
             f"/api/tasks/{sample_task_id}",
             json={"category": "invalid_category"},
             content_type="application/json",
         )
         assert response.status_code == 400
 
-    def test_update_task_not_found(self, client):
+    def test_update_task_not_found(self, auth_client):
         """Test update non-existent task."""
         fake_task_id = "99999999-9999-9999-9999-999999999999"
-        response = client.patch(
+        response = auth_client.patch(
             f"/api/tasks/{fake_task_id}",
             json={"title": "New Title"},
             content_type="application/json",
         )
         assert response.status_code == 404
 
-    def test_update_task_invalid_version(self, client, sample_task_id):
+    def test_update_task_invalid_version(self, auth_client, sample_task_id):
         """Test update task with invalid version format."""
         if sample_task_id is None:
             pytest.skip("No task available for testing")
 
-        response = client.patch(
+        response = auth_client.patch(
             f"/api/tasks/{sample_task_id}",
             json={"title": "New Title", "version": "not-a-number"},
             content_type="application/json",
         )
         assert response.status_code == 400
 
-    def test_create_task_invalid_equipment_id(self, client):
+    def test_create_task_invalid_equipment_id(self, auth_client):
         """Test create task with invalid equipment ID format."""
-        response = client.post(
+        response = auth_client.post(
             f"/api/tenants/{TEST_TENANT_ID}/tasks",
             json={"title": "Test Task", "equipment_id": "invalid-uuid"},
             content_type="application/json",
         )
         assert response.status_code == 400
 
-    def test_create_task_equipment_not_found(self, client):
+    def test_create_task_equipment_not_found(self, auth_client):
         """Test create task with non-existent equipment."""
         fake_equipment_id = "99999999-9999-9999-9999-999999999999"
-        response = client.post(
+        response = auth_client.post(
             f"/api/tenants/{TEST_TENANT_ID}/tasks",
             json={"title": "Test Task", "equipment_id": fake_equipment_id},
             content_type="application/json",
         )
         assert response.status_code == 404
 
-    def test_create_task_invalid_status(self, client, sample_equipment_id):
+    def test_create_task_invalid_status(self, auth_client, sample_equipment_id):
         """Test create task with invalid status."""
         if sample_equipment_id is None:
             pytest.skip("No equipment available for testing")
 
-        response = client.post(
+        response = auth_client.post(
             f"/api/tenants/{TEST_TENANT_ID}/tasks",
             json={
                 "title": "Test Task",
@@ -298,12 +324,12 @@ class TestTaskCRUD:
         )
         assert response.status_code == 400
 
-    def test_create_task_invalid_priority(self, client, sample_equipment_id):
+    def test_create_task_invalid_priority(self, auth_client, sample_equipment_id):
         """Test create task with invalid priority."""
         if sample_equipment_id is None:
             pytest.skip("No equipment available for testing")
 
-        response = client.post(
+        response = auth_client.post(
             f"/api/tenants/{TEST_TENANT_ID}/tasks",
             json={
                 "title": "Test Task",
@@ -314,12 +340,12 @@ class TestTaskCRUD:
         )
         assert response.status_code == 400
 
-    def test_create_task_invalid_category(self, client, sample_equipment_id):
+    def test_create_task_invalid_category(self, auth_client, sample_equipment_id):
         """Test create task with invalid category."""
         if sample_equipment_id is None:
             pytest.skip("No equipment available for testing")
 
-        response = client.post(
+        response = auth_client.post(
             f"/api/tenants/{TEST_TENANT_ID}/tasks",
             json={
                 "title": "Test Task",
@@ -330,36 +356,140 @@ class TestTaskCRUD:
         )
         assert response.status_code == 400
 
+    # ========================================================================
+    # Null/Empty validation tests - precondition violation detection
+    # ========================================================================
+
+    def test_update_task_null_title_rejected(self, auth_client, sample_task_id):
+        """Test that explicit null for title is rejected as precondition violation."""
+        if sample_task_id is None:
+            pytest.skip("No task available for testing")
+
+        response = auth_client.patch(
+            f"/api/tasks/{sample_task_id}",
+            json={"title": None},
+            content_type="application/json",
+        )
+        assert response.status_code == 400
+        data = json.loads(response.data)
+        assert "title" in data["error"].lower() and "null" in data["error"].lower()
+
+    def test_update_task_empty_title_rejected(self, auth_client, sample_task_id):
+        """Test that empty string for title is rejected."""
+        if sample_task_id is None:
+            pytest.skip("No task available for testing")
+
+        response = auth_client.patch(
+            f"/api/tasks/{sample_task_id}",
+            json={"title": ""},
+            content_type="application/json",
+        )
+        assert response.status_code == 400
+        data = json.loads(response.data)
+        assert "title" in data["error"].lower() or "empty" in data["error"].lower()
+
+    def test_update_task_null_status_rejected(self, auth_client, sample_task_id):
+        """Test that explicit null for status is rejected as precondition violation."""
+        if sample_task_id is None:
+            pytest.skip("No task available for testing")
+
+        response = auth_client.patch(
+            f"/api/tasks/{sample_task_id}",
+            json={"status": None},
+            content_type="application/json",
+        )
+        assert response.status_code == 400
+        data = json.loads(response.data)
+        assert "status" in data["error"].lower() and "null" in data["error"].lower()
+
+    def test_update_task_null_priority_rejected(self, auth_client, sample_task_id):
+        """Test that explicit null for priority is rejected as precondition violation."""
+        if sample_task_id is None:
+            pytest.skip("No task available for testing")
+
+        response = auth_client.patch(
+            f"/api/tasks/{sample_task_id}",
+            json={"priority": None},
+            content_type="application/json",
+        )
+        assert response.status_code == 400
+        data = json.loads(response.data)
+        assert "priority" in data["error"].lower() and "null" in data["error"].lower()
+
+    def test_update_task_null_category_rejected(self, auth_client, sample_task_id):
+        """Test that explicit null for category is rejected as precondition violation."""
+        if sample_task_id is None:
+            pytest.skip("No task available for testing")
+
+        response = auth_client.patch(
+            f"/api/tasks/{sample_task_id}",
+            json={"category": None},
+            content_type="application/json",
+        )
+        assert response.status_code == 400
+        data = json.loads(response.data)
+        assert "category" in data["error"].lower() and "null" in data["error"].lower()
+
+    def test_create_task_whitespace_title_rejected(self, auth_client):
+        """Test that whitespace-only title is rejected."""
+        response = auth_client.post(
+            f"/api/tenants/{TEST_TENANT_ID}/tasks",
+            json={"title": "   "},
+            content_type="application/json",
+        )
+        assert response.status_code == 400
+        data = json.loads(response.data)
+        assert "empty" in data["error"].lower() or "title" in str(data).lower()
+
+    def test_create_task_null_status_rejected(self, auth_client):
+        """Test that explicit null for status is rejected (not defaulted)."""
+        response = auth_client.post(
+            f"/api/tenants/{TEST_TENANT_ID}/tasks",
+            json={"title": "Test Task", "status": None},
+            content_type="application/json",
+        )
+        assert response.status_code == 400
+        data = json.loads(response.data)
+        assert "status" in data["error"].lower() and "null" in data["error"].lower()
+
+    def test_get_task_details_not_found_returns_404(self, client):
+        """Test that get_task_details returns 404 for non-existent task."""
+        fake_task_id = "99999999-9999-9999-9999-999999999999"
+        response = client.get(f"/api/tasks/{fake_task_id}/details")
+        assert response.status_code == 404
+        data = json.loads(response.data)
+        assert "error" in data
+
 
 class TestCommentEndpoints:
     """Test comment-related endpoints."""
 
-    def test_create_comment_task_not_found(self, client):
+    def test_create_comment_task_not_found(self, auth_client):
         """Test creating comment on non-existent task."""
         fake_task_id = "99999999-9999-9999-9999-999999999999"
-        response = client.post(
+        response = auth_client.post(
             f"/api/tasks/{fake_task_id}/comments",
             json={"commented_by": "Test User", "comment": "Test comment"},
             content_type="application/json",
         )
         assert response.status_code == 404
 
-    def test_create_comment_empty_fields(self, client, sample_task_id):
+    def test_create_comment_empty_fields(self, auth_client, sample_task_id):
         """Test creating comment with empty fields."""
         if sample_task_id is None:
             pytest.skip("No task available for testing")
 
-        response = client.post(
+        response = auth_client.post(
             f"/api/tasks/{sample_task_id}/comments",
             json={"commented_by": "", "comment": ""},
             content_type="application/json",
         )
         assert response.status_code == 400
 
-    def test_delete_comment_not_found(self, client):
+    def test_delete_comment_not_found(self, auth_client):
         """Test deleting non-existent comment."""
         fake_comment_id = "99999999-9999-9999-9999-999999999999"
-        response = client.delete(f"/api/comments/{fake_comment_id}")
+        response = auth_client.delete(f"/api/comments/{fake_comment_id}")
         assert response.status_code == 404
 
 

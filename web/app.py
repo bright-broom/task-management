@@ -133,7 +133,8 @@ def get_tenants() -> Response:
     """
     with get_db_connection() as conn:
         with get_db_cursor(conn) as cur:
-            cur.execute("SELECT * FROM tenants ORDER BY name")
+            # Filter out soft-deleted tenants
+            cur.execute("SELECT * FROM tenants WHERE deleted_at IS NULL ORDER BY name")
             tenants = cur.fetchall()
     return jsonify(tenants)
 
@@ -151,8 +152,10 @@ def get_equipments(tenant_id: str) -> Response:
 
     with get_db_connection() as conn:
         with tenant_context(conn, tenant_id) as cur:
+            # Filter out soft-deleted equipments
             cur.execute(
-                "SELECT COUNT(*) as count FROM equipments WHERE tenant_id = %s",
+                """SELECT COUNT(*) as count FROM equipments
+                   WHERE tenant_id = %s AND deleted_at IS NULL""",
                 (tenant_id,),
             )
             total = cur.fetchone()["count"]
@@ -162,13 +165,13 @@ def get_equipments(tenant_id: str) -> Response:
                 WITH RECURSIVE equipment_tree AS (
                     SELECT id, name, parent_equipment_id, manufacturer, description, 0 AS depth
                     FROM equipments
-                    WHERE tenant_id = %s AND parent_equipment_id IS NULL
+                    WHERE tenant_id = %s AND parent_equipment_id IS NULL AND deleted_at IS NULL
                     UNION ALL
                     SELECT e.id, e.name, e.parent_equipment_id, e.manufacturer,
                            e.description, et.depth + 1
                     FROM equipments e
                     JOIN equipment_tree et ON e.parent_equipment_id = et.id
-                    WHERE e.tenant_id = %s
+                    WHERE e.tenant_id = %s AND e.deleted_at IS NULL
                 )
                 SELECT * FROM equipment_tree
                 ORDER BY depth, name
@@ -197,7 +200,8 @@ def get_parts(tenant_id: str) -> Response:
 
     with get_db_connection() as conn:
         with tenant_context(conn, tenant_id) as cur:
-            conditions = ["p.tenant_id = %s"]
+            # Filter out soft-deleted parts
+            conditions = ["p.tenant_id = %s", "p.deleted_at IS NULL"]
             params: list[Any] = [tenant_id]
 
             if low_stock_only:

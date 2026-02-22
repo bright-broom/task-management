@@ -68,7 +68,7 @@ erDiagram
     tasks {
         UUID id PK "主キー"
         UUID tenant_id FK "テナントID"
-        UUID equipment_id FK "設備ID"
+        UUID equipment_id FK "設備ID（任意）"
         UUID assigned_to_user_id FK "担当ユーザーID"
         UUID created_by FK "作成者ID"
         VARCHAR title "タイトル"
@@ -289,7 +289,7 @@ erDiagram
 
     equipments ||--o{ equipments : "parent-child"
     equipments ||--o{ equipment_parts : "related"
-    equipments ||--o{ tasks : "has"
+    equipments |o--o{ tasks : "may have"
 
     parts ||--o{ equipment_parts : "related"
     parts ||--o{ task_parts : "used in"

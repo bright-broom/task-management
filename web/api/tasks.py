@@ -14,6 +14,7 @@ from typing import Any
 from api import tasks_bp
 from database import get_db_connection, get_db_cursor, tenant_context
 from flask import Response, jsonify, request
+from security import require_auth
 from validators import (
     PaginationParams,
     build_pagination_response,
@@ -91,7 +92,8 @@ def get_tasks(tenant_id: str) -> Response:
 
     with get_db_connection() as conn:
         with tenant_context(conn, tenant_id) as cur:
-            conditions = ["t.tenant_id = %s"]
+            # Always filter out soft-deleted tasks
+            conditions = ["t.tenant_id = %s", "t.deleted_at IS NULL"]
             params: list[Any] = [tenant_id]
 
             if status_filter and status_filter in VALID_TASK_STATUSES:
@@ -114,7 +116,7 @@ def get_tasks(tenant_id: str) -> Response:
                 f"""
                 SELECT t.*, e.name AS equipment_name
                 FROM tasks t
-                JOIN equipments e ON t.equipment_id = e.id
+                LEFT JOIN equipments e ON t.equipment_id = e.id
                 {where_clause}
                 ORDER BY t.created_at DESC
                 LIMIT %s OFFSET %s
@@ -137,8 +139,8 @@ def get_task(tenant_id: str, task_id: str) -> tuple[Response, int]:
                 """
                 SELECT t.*, e.name AS equipment_name
                 FROM tasks t
-                JOIN equipments e ON t.equipment_id = e.id
-                WHERE t.id = %s AND t.tenant_id = %s
+                LEFT JOIN equipments e ON t.equipment_id = e.id
+                WHERE t.id = %s AND t.tenant_id = %s AND t.deleted_at IS NULL
             """,
                 (task_id, tenant_id),
             )
@@ -150,25 +152,43 @@ def get_task(tenant_id: str, task_id: str) -> tuple[Response, int]:
     return jsonify(task), 200
 
 
-@tasks_bp.route("/api/tasks/<task_id>/details")
+@tasks_bp.route("/api/tenants/<tenant_id>/tasks/<task_id>/details")
+@tasks_bp.route("/api/tasks/<task_id>/details")  # Legacy route (deprecated)
 @validate_uuid("task_id")
-def get_task_details(task_id: str) -> Response:
-    """Get task with custom fields, parts, and comments."""
+def get_task_details(task_id: str, tenant_id: str | None = None) -> Response | tuple[Response, int]:
+    """Get task with custom fields, parts, and comments.
+
+    Security Note: The legacy route /api/tasks/<task_id>/details is deprecated.
+    Use /api/tenants/<tenant_id>/tasks/<task_id>/details for proper tenant isolation.
+    """
     with get_db_connection() as conn:
         with get_db_cursor(conn) as cur:
-            cur.execute(
-                """
+            # Build query with optional tenant filter
+            query = """
                 SELECT t.*, e.name AS equipment_name
                 FROM tasks t
-                JOIN equipments e ON t.equipment_id = e.id
-                WHERE t.id = %s
-            """,
-                (task_id,),
-            )
+                LEFT JOIN equipments e ON t.equipment_id = e.id
+                WHERE t.id = %s AND t.deleted_at IS NULL
+            """
+            params: tuple[str, ...] = (task_id,)
+
+            # If tenant_id provided, enforce tenant isolation
+            if tenant_id:
+                if not is_valid_uuid(tenant_id):
+                    return jsonify({"error": "Invalid tenant_id format"}), 400
+                query = """
+                    SELECT t.*, e.name AS equipment_name
+                    FROM tasks t
+                    LEFT JOIN equipments e ON t.equipment_id = e.id
+                    WHERE t.id = %s AND t.tenant_id = %s AND t.deleted_at IS NULL
+                """
+                params = (task_id, tenant_id)
+
+            cur.execute(query, params)
             task = cur.fetchone()
 
             if not task:
-                return jsonify({"task": None, "custom_fields": [], "parts": [], "comments": []})
+                return jsonify({"error": "Task not found"}), 404
 
             cur.execute("SET app.current_tenant_id = %s", (str(task["tenant_id"]),))
 
@@ -219,8 +239,9 @@ def get_task_details(task_id: str) -> Response:
 
 
 @tasks_bp.route("/api/tenants/<tenant_id>/tasks", methods=["POST"])
+@require_auth
 @validate_uuid("tenant_id")
-@validate_required_fields(["title", "equipment_id"])
+@validate_required_fields(["title"])
 def create_task(tenant_id: str) -> tuple[Response, int]:
     """
     タスク作成
@@ -232,9 +253,13 @@ def create_task(tenant_id: str) -> tuple[Response, int]:
     user_id, user_name = get_request_user_context()
 
     equipment_id = data.get("equipment_id")
-    if not is_valid_uuid(equipment_id):
+    # equipment_id is optional, but if provided must be valid UUID
+    if equipment_id is not None and not is_valid_uuid(equipment_id):
         return jsonify({"error": "Invalid equipment_id format"}), 400
 
+    # status: explicit null is a precondition violation, missing key gets default
+    if "status" in data and data["status"] is None:
+        return jsonify({"error": "status cannot be null"}), 400
     status = data.get("status", "todo")
     if status not in VALID_TASK_STATUSES:
         return (
@@ -242,6 +267,9 @@ def create_task(tenant_id: str) -> tuple[Response, int]:
             400,
         )
 
+    # priority: explicit null is a precondition violation, missing key gets default
+    if "priority" in data and data["priority"] is None:
+        return jsonify({"error": "priority cannot be null"}), 400
     priority = data.get("priority", "medium")
     if priority not in VALID_TASK_PRIORITIES:
         return (
@@ -251,6 +279,9 @@ def create_task(tenant_id: str) -> tuple[Response, int]:
             400,
         )
 
+    # category: explicit null is a precondition violation, missing key gets default
+    if "category" in data and data["category"] is None:
+        return jsonify({"error": "category cannot be null"}), 400
     category = data.get("category", "maintenance")
     if category not in VALID_TASK_CATEGORIES:
         return (
@@ -268,13 +299,15 @@ def create_task(tenant_id: str) -> tuple[Response, int]:
 
     with get_db_connection() as conn:
         with tenant_context(conn, tenant_id, user_id, user_name) as cur:
-            # Verify equipment exists, belongs to same tenant, and is not deleted
-            cur.execute(
-                "SELECT id FROM equipments WHERE id = %s AND tenant_id = %s AND deleted_at IS NULL",
-                (equipment_id, tenant_id),
-            )
-            if not cur.fetchone():
-                return jsonify({"error": "Equipment not found"}), 404
+            # Verify equipment exists if provided
+            if equipment_id:
+                cur.execute(
+                    """SELECT id FROM equipments
+                       WHERE id = %s AND tenant_id = %s AND deleted_at IS NULL""",
+                    (equipment_id, tenant_id),
+                )
+                if not cur.fetchone():
+                    return jsonify({"error": "Equipment not found"}), 404
 
             cur.execute("""SELECT column_name FROM information_schema.columns
                    WHERE table_name = 'tasks' AND column_name = 'priority'""")
@@ -320,6 +353,7 @@ def create_task(tenant_id: str) -> tuple[Response, int]:
 
 
 @tasks_bp.route("/api/tasks/<task_id>", methods=["PATCH"])
+@require_auth
 @validate_uuid("task_id")
 def update_task(task_id: str) -> tuple[Response, int]:
     """
@@ -343,14 +377,23 @@ def update_task(task_id: str) -> tuple[Response, int]:
     params: list[Any] = []
 
     if "title" in data:
+        # title is required - null is a precondition violation
+        if data["title"] is None:
+            return jsonify({"error": "title cannot be null"}), 400
+        sanitized_title = sanitize_string(data["title"])
+        if not sanitized_title:
+            return jsonify({"error": "title cannot be empty"}), 400
         updates.append("title = %s")
-        params.append(sanitize_string(data["title"]))
+        params.append(sanitized_title)
 
     if "description" in data:
         updates.append("description = %s")
         params.append(sanitize_string(data["description"], max_length=2000))
 
     if "status" in data:
+        # status is an enum - null is a precondition violation
+        if data["status"] is None:
+            return jsonify({"error": "status cannot be null"}), 400
         if data["status"] not in VALID_TASK_STATUSES:
             return (
                 jsonify(
@@ -373,6 +416,9 @@ def update_task(task_id: str) -> tuple[Response, int]:
     v2_params: list[Any] = []
 
     if "priority" in data:
+        # priority is an enum - null is a precondition violation
+        if data["priority"] is None:
+            return jsonify({"error": "priority cannot be null"}), 400
         if data["priority"] not in VALID_TASK_PRIORITIES:
             return (
                 jsonify(
@@ -387,6 +433,9 @@ def update_task(task_id: str) -> tuple[Response, int]:
         v2_params.append(data["priority"])
 
     if "category" in data:
+        # category is an enum - null is a precondition violation
+        if data["category"] is None:
+            return jsonify({"error": "category cannot be null"}), 400
         if data["category"] not in VALID_TASK_CATEGORIES:
             return (
                 jsonify(
@@ -472,6 +521,7 @@ def update_task(task_id: str) -> tuple[Response, int]:
 
 
 @tasks_bp.route("/api/tasks/<task_id>/comments", methods=["POST"])
+@require_auth
 @validate_uuid("task_id")
 @validate_required_fields(["commented_by", "comment"])
 def create_comment(task_id: str) -> tuple[Response, int]:
@@ -486,7 +536,11 @@ def create_comment(task_id: str) -> tuple[Response, int]:
 
     with get_db_connection() as conn:
         with get_db_cursor(conn) as cur:
-            cur.execute("SELECT tenant_id FROM tasks WHERE id = %s", (task_id,))
+            # Don't allow comments on deleted tasks
+            cur.execute(
+                "SELECT tenant_id FROM tasks WHERE id = %s AND deleted_at IS NULL",
+                (task_id,),
+            )
             task = cur.fetchone()
 
             if not task:
@@ -507,6 +561,7 @@ def create_comment(task_id: str) -> tuple[Response, int]:
 
 
 @tasks_bp.route("/api/comments/<comment_id>", methods=["DELETE"])
+@require_auth
 @validate_uuid("comment_id")
 def delete_comment(comment_id: str) -> tuple[Response, int]:
     """Soft delete a comment."""

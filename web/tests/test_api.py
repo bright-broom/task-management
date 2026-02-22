@@ -353,12 +353,12 @@ class TestStatsAPI:
 class TestTaskCRUD:
     """Test Task CRUD operations (Create, Update)."""
 
-    def test_create_task_success(self, client, sample_equipment_id):
+    def test_create_task_success(self, auth_client, sample_equipment_id):
         """Verify task creation with valid data."""
         if not sample_equipment_id:
             pytest.skip("No sample equipment available")
 
-        response = client.post(
+        response = auth_client.post(
             f"/api/tenants/{TEST_TENANT_ID}/tasks",
             json={
                 "title": "Test Task",
@@ -376,9 +376,9 @@ class TestTaskCRUD:
         assert data["status"] == "todo"
         assert data["tenant_id"] == TEST_TENANT_ID
 
-    def test_create_task_missing_required_fields(self, client):
+    def test_create_task_missing_required_fields(self, auth_client):
         """Verify error when required fields are missing."""
-        response = client.post(
+        response = auth_client.post(
             f"/api/tenants/{TEST_TENANT_ID}/tasks",
             json={"description": "Only description"},
             content_type="application/json",
@@ -389,9 +389,9 @@ class TestTaskCRUD:
         assert "error" in data
         assert "fields" in data
 
-    def test_create_task_invalid_equipment_id(self, client):
+    def test_create_task_invalid_equipment_id(self, auth_client):
         """Verify error when equipment_id is invalid."""
-        response = client.post(
+        response = auth_client.post(
             f"/api/tenants/{TEST_TENANT_ID}/tasks",
             json={
                 "title": "Test Task",
@@ -402,9 +402,9 @@ class TestTaskCRUD:
 
         assert response.status_code == 400
 
-    def test_create_task_nonexistent_equipment(self, client):
+    def test_create_task_nonexistent_equipment(self, auth_client):
         """Verify error when equipment doesn't exist."""
-        response = client.post(
+        response = auth_client.post(
             f"/api/tenants/{TEST_TENANT_ID}/tasks",
             json={
                 "title": "Test Task",
@@ -415,12 +415,12 @@ class TestTaskCRUD:
 
         assert response.status_code == 404
 
-    def test_update_task_success(self, client, sample_task_id):
+    def test_update_task_success(self, auth_client, sample_task_id):
         """Verify task update with valid data."""
         if not sample_task_id:
             pytest.skip("No sample task available")
 
-        response = client.patch(
+        response = auth_client.patch(
             f"/api/tasks/{sample_task_id}",
             json={"status": "in_progress"},
             content_type="application/json",
@@ -430,12 +430,12 @@ class TestTaskCRUD:
         data = json.loads(response.data)
         assert data["status"] == "in_progress"
 
-    def test_update_task_invalid_status(self, client, sample_task_id):
+    def test_update_task_invalid_status(self, auth_client, sample_task_id):
         """Verify error when status is invalid."""
         if not sample_task_id:
             pytest.skip("No sample task available")
 
-        response = client.patch(
+        response = auth_client.patch(
             f"/api/tasks/{sample_task_id}",
             json={"status": "invalid_status"},
             content_type="application/json",
@@ -443,9 +443,9 @@ class TestTaskCRUD:
 
         assert response.status_code == 400
 
-    def test_update_task_not_found(self, client):
+    def test_update_task_not_found(self, auth_client):
         """Verify error when task doesn't exist."""
-        response = client.patch(
+        response = auth_client.patch(
             "/api/tasks/00000000-0000-0000-0000-000000000000",
             json={"title": "Updated Title"},
             content_type="application/json",
@@ -453,16 +453,34 @@ class TestTaskCRUD:
 
         assert response.status_code == 404
 
+    def test_create_task_requires_auth(self, client):
+        """Verify task creation requires authentication."""
+        response = client.post(
+            f"/api/tenants/{TEST_TENANT_ID}/tasks",
+            json={"title": "Test Task"},
+            content_type="application/json",
+        )
+        assert response.status_code == 401
+
+    def test_update_task_requires_auth(self, client):
+        """Verify task update requires authentication."""
+        response = client.patch(
+            "/api/tasks/00000000-0000-0000-0000-000000000000",
+            json={"title": "Updated Title"},
+            content_type="application/json",
+        )
+        assert response.status_code == 401
+
 
 class TestCommentCRUD:
     """Test Comment CRUD operations (Create, Delete) - 課題2."""
 
-    def test_create_comment_success(self, client, sample_task_id):
+    def test_create_comment_success(self, auth_client, sample_task_id):
         """Verify comment creation with valid data."""
         if not sample_task_id:
             pytest.skip("No sample task available")
 
-        response = client.post(
+        response = auth_client.post(
             f"/api/tasks/{sample_task_id}/comments",
             json={
                 "commented_by": "Test User",
@@ -477,12 +495,12 @@ class TestCommentCRUD:
         assert data["comment"] == "This is a test comment"
         assert "created_at" in data
 
-    def test_create_comment_missing_fields(self, client, sample_task_id):
+    def test_create_comment_missing_fields(self, auth_client, sample_task_id):
         """Verify error when required fields are missing."""
         if not sample_task_id:
             pytest.skip("No sample task available")
 
-        response = client.post(
+        response = auth_client.post(
             f"/api/tasks/{sample_task_id}/comments",
             json={"comment": "Only comment, no author"},
             content_type="application/json",
@@ -490,9 +508,9 @@ class TestCommentCRUD:
 
         assert response.status_code == 400
 
-    def test_create_comment_task_not_found(self, client):
+    def test_create_comment_task_not_found(self, auth_client):
         """Verify error when task doesn't exist."""
-        response = client.post(
+        response = auth_client.post(
             "/api/tasks/00000000-0000-0000-0000-000000000000/comments",
             json={
                 "commented_by": "Test User",
@@ -503,11 +521,28 @@ class TestCommentCRUD:
 
         assert response.status_code == 404
 
-    def test_delete_comment_not_found(self, client):
+    def test_delete_comment_not_found(self, auth_client):
         """Verify error when comment doesn't exist."""
-        response = client.delete("/api/comments/00000000-0000-0000-0000-000000000000")
+        response = auth_client.delete("/api/comments/00000000-0000-0000-0000-000000000000")
 
         assert response.status_code == 404
+
+    def test_create_comment_requires_auth(self, client, sample_task_id):
+        """Verify comment creation requires authentication."""
+        if not sample_task_id:
+            pytest.skip("No sample task available")
+
+        response = client.post(
+            f"/api/tasks/{sample_task_id}/comments",
+            json={"commented_by": "User", "comment": "Test"},
+            content_type="application/json",
+        )
+        assert response.status_code == 401
+
+    def test_delete_comment_requires_auth(self, client):
+        """Verify comment deletion requires authentication."""
+        response = client.delete("/api/comments/00000000-0000-0000-0000-000000000000")
+        assert response.status_code == 401
 
 
 class TestInputValidation:
@@ -522,12 +557,12 @@ class TestInputValidation:
         assert "error" in data
         assert data["error"] == "Invalid UUID format"
 
-    def test_json_content_type_required(self, client, sample_task_id):
+    def test_json_content_type_required(self, auth_client, sample_task_id):
         """Verify error when JSON content type is missing for POST."""
         if not sample_task_id:
             pytest.skip("No sample task available")
 
-        response = client.post(
+        response = auth_client.post(
             f"/api/tasks/{sample_task_id}/comments",
             data="not json",
         )
