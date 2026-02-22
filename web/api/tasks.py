@@ -114,7 +114,7 @@ def get_tasks(tenant_id: str) -> Response:
                 f"""
                 SELECT t.*, e.name AS equipment_name
                 FROM tasks t
-                JOIN equipments e ON t.equipment_id = e.id
+                LEFT JOIN equipments e ON t.equipment_id = e.id
                 {where_clause}
                 ORDER BY t.created_at DESC
                 LIMIT %s OFFSET %s
@@ -137,7 +137,7 @@ def get_task(tenant_id: str, task_id: str) -> tuple[Response, int]:
                 """
                 SELECT t.*, e.name AS equipment_name
                 FROM tasks t
-                JOIN equipments e ON t.equipment_id = e.id
+                LEFT JOIN equipments e ON t.equipment_id = e.id
                 WHERE t.id = %s AND t.tenant_id = %s
             """,
                 (task_id, tenant_id),
@@ -160,7 +160,7 @@ def get_task_details(task_id: str) -> Response:
                 """
                 SELECT t.*, e.name AS equipment_name
                 FROM tasks t
-                JOIN equipments e ON t.equipment_id = e.id
+                LEFT JOIN equipments e ON t.equipment_id = e.id
                 WHERE t.id = %s
             """,
                 (task_id,),
@@ -220,7 +220,7 @@ def get_task_details(task_id: str) -> Response:
 
 @tasks_bp.route("/api/tenants/<tenant_id>/tasks", methods=["POST"])
 @validate_uuid("tenant_id")
-@validate_required_fields(["title", "equipment_id"])
+@validate_required_fields(["title"])
 def create_task(tenant_id: str) -> tuple[Response, int]:
     """
     タスク作成
@@ -232,7 +232,8 @@ def create_task(tenant_id: str) -> tuple[Response, int]:
     user_id, user_name = get_request_user_context()
 
     equipment_id = data.get("equipment_id")
-    if not is_valid_uuid(equipment_id):
+    # equipment_id is optional, but if provided must be valid UUID
+    if equipment_id is not None and not is_valid_uuid(equipment_id):
         return jsonify({"error": "Invalid equipment_id format"}), 400
 
     status = data.get("status", "todo")
@@ -268,13 +269,14 @@ def create_task(tenant_id: str) -> tuple[Response, int]:
 
     with get_db_connection() as conn:
         with tenant_context(conn, tenant_id, user_id, user_name) as cur:
-            # Verify equipment exists, belongs to same tenant, and is not deleted
-            cur.execute(
-                "SELECT id FROM equipments WHERE id = %s AND tenant_id = %s AND deleted_at IS NULL",
-                (equipment_id, tenant_id),
-            )
-            if not cur.fetchone():
-                return jsonify({"error": "Equipment not found"}), 404
+            # Verify equipment exists if provided
+            if equipment_id:
+                cur.execute(
+                    "SELECT id FROM equipments WHERE id = %s AND tenant_id = %s AND deleted_at IS NULL",
+                    (equipment_id, tenant_id),
+                )
+                if not cur.fetchone():
+                    return jsonify({"error": "Equipment not found"}), 404
 
             cur.execute("""SELECT column_name FROM information_schema.columns
                    WHERE table_name = 'tasks' AND column_name = 'priority'""")
