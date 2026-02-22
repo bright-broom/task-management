@@ -106,14 +106,12 @@ class StructuredLogFormatter(logging.Formatter):
             "message": record.getMessage(),
         }
 
-        # サービスメタデータ
         log_data["service"] = self._service
         log_data["environment"] = self._environment
 
         if self.include_hostname:
             log_data["hostname"] = self._hostname
 
-        # リクエストコンテキスト
         request_id = request_id_var.get()
         if request_id:
             log_data["request_id"] = request_id
@@ -126,14 +124,12 @@ class StructuredLogFormatter(logging.Formatter):
         if user_id:
             log_data["user_id"] = user_id
 
-        # ソース位置情報
         log_data["source"] = {
             "file": record.pathname,
             "line": record.lineno,
             "function": record.funcName,
         }
 
-        # 例外情報
         if record.exc_info:
             log_data["exception"] = {
                 "type": record.exc_info[0].__name__ if record.exc_info[0] else None,
@@ -141,7 +137,6 @@ class StructuredLogFormatter(logging.Formatter):
                 "traceback": self.formatException(record.exc_info),
             }
 
-        # 追加フィールド（record.__dict__から抽出）
         extra_fields = {}
         standard_fields = {
             "name",
@@ -203,7 +198,6 @@ class ConsoleLogFormatter(logging.Formatter):
         color = self.COLORS.get(record.levelname, "")
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
 
-        # コンテキスト情報を追加
         context_parts = []
         request_id = request_id_var.get()
         if request_id:
@@ -251,11 +245,9 @@ def configure_logging(
         LOG_FORMAT: 'json' または 'console'（デフォルト: 環境に応じて自動）
         ENVIRONMENT: 'production', 'staging', 'development' など
     """
-    # ログレベルの決定
     level_str = log_level or os.environ.get("LOG_LEVEL", "INFO")
     level = getattr(logging, level_str.upper(), logging.INFO)
 
-    # フォーマットの決定
     if json_format is None:
         log_format = os.environ.get("LOG_FORMAT", "")
         environment = os.environ.get("ENVIRONMENT", "development")
@@ -264,19 +256,15 @@ def configure_logging(
             "staging",
         )
 
-    # ストリームの決定
     if stream is None:
         stream = sys.stderr
 
-    # ルートロガーの設定
     root_logger = logging.getLogger()
     root_logger.setLevel(level)
 
-    # 既存ハンドラーをクリア
     for handler in root_logger.handlers[:]:
         root_logger.removeHandler(handler)
 
-    # ハンドラーを追加
     handler = logging.StreamHandler(stream)
     handler.setLevel(level)
 
@@ -374,13 +362,11 @@ def setup_flask_logging(app: Any) -> None:
     @app.before_request
     def before_request() -> None:
         """リクエスト開始時の処理。"""
-        # リクエストIDの設定（ヘッダーから取得または生成）
         request_id = request.headers.get("X-Request-ID", str(uuid.uuid4()))
         set_request_context(request_id=request_id)
         g.request_id = request_id
         g.request_start_time = datetime.now(timezone.utc)
 
-        # リクエストログ
         logger.info(
             f"Request started: {request.method} {request.path}",
             extra={
@@ -394,17 +380,14 @@ def setup_flask_logging(app: Any) -> None:
     @app.after_request
     def after_request(response: Any) -> Any:
         """リクエスト完了時の処理。"""
-        # レスポンスにリクエストIDを付与
         if hasattr(g, "request_id"):
             response.headers["X-Request-ID"] = g.request_id
 
-        # 処理時間の計算
         duration_ms = 0.0
         if hasattr(g, "request_start_time"):
             duration = datetime.now(timezone.utc) - g.request_start_time
             duration_ms = duration.total_seconds() * 1000
 
-        # レスポンスログ
         logger.info(
             f"Request completed: {request.method} {request.path} -> {response.status_code}",
             extra={
@@ -529,5 +512,4 @@ class StructuredSecurityLogger:
         )
 
 
-# シングルトンインスタンス
 structured_security_logger = StructuredSecurityLogger()

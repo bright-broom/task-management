@@ -8,7 +8,6 @@ This package contains Flask blueprints for different API domains:
 
 from flask import Blueprint
 
-# Create blueprints
 tasks_bp = Blueprint("tasks", __name__)
 auth_bp = Blueprint("auth", __name__)
 

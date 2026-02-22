@@ -331,12 +331,10 @@ def require_tenant_access(tenant_id_param: str = "tenant_id") -> Callable[[F], F
     def decorator(f: F) -> F:
         @wraps(f)
         def decorated(*args: Any, **kwargs: Any) -> Any:
-            # Get tenant_id from URL parameters
             url_tenant_id = kwargs.get(tenant_id_param)
             if not url_tenant_id:
                 return jsonify({"error": "Tenant ID required"}), 400
 
-            # Get user's tenant_id from JWT (set by require_auth)
             user_tenant_id = getattr(g, "current_user", {}).get("tenant_id")
 
             # Admin users can access any tenant (optional feature)
@@ -344,7 +342,6 @@ def require_tenant_access(tenant_id_param: str = "tenant_id") -> Callable[[F], F
             if user_role == "admin":
                 return f(*args, **kwargs)
 
-            # Verify user belongs to this tenant
             if user_tenant_id != url_tenant_id:
                 return (
                     jsonify(
@@ -510,8 +507,6 @@ def require_csrf(f: F) -> F:
             if not csrf_token:
                 return jsonify({"error": "CSRF token required"}), 403
 
-            # セッションからトークンを取得して検証
-            # 実際の実装ではセッションストアを使用
             stored_token = g.get("csrf_token")
             if stored_token and not validate_csrf_token(csrf_token, stored_token):
                 return jsonify({"error": "Invalid CSRF token"}), 403
@@ -637,7 +632,6 @@ class SecurityEventLogger:
         log_func = getattr(logger, severity, logger.info)
         log_func(f"SECURITY_EVENT: {event_type} | {log_entry}")
 
-        # データベースへの記録（有効な場合）
         if self._db_logging_enabled:
             self._log_to_database(log_entry)
 
