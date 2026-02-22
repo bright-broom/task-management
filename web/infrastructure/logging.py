@@ -20,10 +20,6 @@ from datetime import datetime, timezone
 from functools import wraps
 from typing import Any, Callable, TypeVar
 
-# ============================================================================
-# Context Variables for Request-scoped Data
-# ============================================================================
-
 request_id_var: ContextVar[str] = ContextVar("request_id", default="")
 tenant_id_var: ContextVar[str] = ContextVar("tenant_id", default="")
 user_id_var: ContextVar[str] = ContextVar("user_id", default="")
@@ -66,11 +62,6 @@ def clear_request_context() -> None:
 def get_request_id() -> str:
     """現在のリクエストIDを取得。"""
     return request_id_var.get()
-
-
-# ============================================================================
-# JSON Log Formatter
-# ============================================================================
 
 
 class StructuredLogFormatter(logging.Formatter):
@@ -222,11 +213,6 @@ class ConsoleLogFormatter(logging.Formatter):
         return base
 
 
-# ============================================================================
-# Logger Configuration
-# ============================================================================
-
-
 def configure_logging(
     log_level: str | None = None,
     json_format: bool | None = None,
@@ -293,11 +279,6 @@ def get_logger(name: str) -> logging.Logger:
     return logging.getLogger(name)
 
 
-# ============================================================================
-# Logging Decorators
-# ============================================================================
-
-
 def log_function_call(logger: logging.Logger | None = None) -> Callable[[F], F]:
     """
     関数の呼び出しと結果をログに記録するデコレータ。
@@ -341,11 +322,6 @@ def log_function_call(logger: logging.Logger | None = None) -> Callable[[F], F]:
         return wrapper  # type: ignore[return-value]
 
     return decorator
-
-
-# ============================================================================
-# Flask Integration
-# ============================================================================
 
 
 def setup_flask_logging(app: Any) -> None:
@@ -411,11 +387,6 @@ def setup_flask_logging(app: Any) -> None:
                 exc_info=True,
             )
         clear_request_context()
-
-
-# ============================================================================
-# Security Event Logger Integration
-# ============================================================================
 
 
 class StructuredSecurityLogger:

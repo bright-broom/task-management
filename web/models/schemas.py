@@ -13,10 +13,6 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
-# ============================================================================
-# Enums
-# ============================================================================
-
 
 class TaskStatus(str, Enum):
     """Task status enumeration matching DB schema."""
@@ -44,11 +40,6 @@ class TaskCategory(str, Enum):
     EMERGENCY = "emergency"
 
 
-# ============================================================================
-# Base Schemas
-# ============================================================================
-
-
 class BaseSchema(BaseModel):
     """Base schema with common configuration."""
 
@@ -57,11 +48,6 @@ class BaseSchema(BaseModel):
         str_strip_whitespace=True,
         validate_assignment=True,
     )
-
-
-# ============================================================================
-# Task Schemas
-# ============================================================================
 
 
 class TaskCreate(BaseSchema):
@@ -116,11 +102,6 @@ class TaskResponse(BaseSchema):
     updated_at: datetime
 
 
-# ============================================================================
-# Comment Schemas
-# ============================================================================
-
-
 class CommentCreate(BaseSchema):
     """Schema for creating a task comment."""
 
@@ -146,11 +127,6 @@ class CommentResponse(BaseSchema):
     comment: str
     created_at: datetime
     deleted_at: datetime | None = None
-
-
-# ============================================================================
-# Auth Schemas
-# ============================================================================
 
 
 class LoginRequest(BaseSchema):
@@ -186,11 +162,6 @@ class UserResponse(BaseSchema):
     created_at: datetime
 
 
-# ============================================================================
-# Pagination Schemas
-# ============================================================================
-
-
 class PaginationMeta(BaseSchema):
     """Schema for pagination metadata."""
 
@@ -207,11 +178,6 @@ class PaginatedResponse(BaseSchema):
     pagination: PaginationMeta
 
 
-# ============================================================================
-# Equipment Schemas
-# ============================================================================
-
-
 class EquipmentResponse(BaseSchema):
     """Schema for equipment response."""
 
@@ -221,11 +187,6 @@ class EquipmentResponse(BaseSchema):
     parent_equipment_id: UUID | None = None
     manufacturer: str | None = None
     description: str | None = None
-
-
-# ============================================================================
-# Part Schemas
-# ============================================================================
 
 
 class PartResponse(BaseSchema):
@@ -238,11 +199,6 @@ class PartResponse(BaseSchema):
     stock_quantity: int = 0
     reorder_point: int = 0
     unit_price: float | None = None
-
-
-# ============================================================================
-# Health Check Schema
-# ============================================================================
 
 
 class HealthCheckResponse(BaseSchema):
