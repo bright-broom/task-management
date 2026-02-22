@@ -123,7 +123,7 @@ erDiagram
     equipments ||--o{ equipments : "parent-child"
     equipments ||--o{ equipment_parts : "related"
     parts ||--o{ equipment_parts : "related"
-    equipments ||--o{ tasks : "has"
+    equipments |o--o{ tasks : "may have"
     tasks ||--o{ task_parts : "uses"
     parts ||--o{ task_parts : "used_in"
     tasks ||--o{ custom_field_values : "has"
