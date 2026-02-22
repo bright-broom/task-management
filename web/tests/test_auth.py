@@ -43,6 +43,22 @@ class TestLoginEndpoint:
         data = json.loads(response.data)
         assert "required" in data["error"].lower()
 
+    def test_login_null_email_does_not_crash(self, client):
+        """Test login with null email doesn't crash (precondition violation)."""
+        response = client.post(
+            "/api/auth/login",
+            json={
+                "email": None,
+                "password": "password123",
+                "tenant_id": TEST_TENANT_ID,
+            },
+            content_type="application/json",
+        )
+        # Should return 400, not 500 (crash)
+        assert response.status_code == 400
+        data = json.loads(response.data)
+        assert "required" in data["error"].lower()
+
     def test_login_invalid_email_format(self, client):
         """Test login with invalid email format."""
         response = client.post(
@@ -106,6 +122,16 @@ class TestRefreshTokenEndpoint:
         assert response.status_code == 400
         data = json.loads(response.data)
         assert "token" in data["error"].lower()
+
+    def test_refresh_null_token_does_not_crash(self, client):
+        """Test refresh with null token doesn't crash (precondition violation)."""
+        response = client.post(
+            "/api/auth/refresh",
+            json={"refresh_token": None},
+            content_type="application/json",
+        )
+        # Should return 400, not 500 (crash)
+        assert response.status_code == 400
 
     def test_refresh_invalid_token(self, client):
         """Test refresh with invalid token."""

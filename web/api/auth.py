@@ -48,9 +48,10 @@ def login() -> tuple[Response, int]:
     if not data:
         return jsonify({"error": "Request body required"}), 400
 
-    email = data.get("email", "").strip().lower()
-    password = data.get("password", "")
-    tenant_id = data.get("tenant_id", "")
+    # Handle explicit null as precondition violation (same as missing)
+    email = (data.get("email") or "").strip().lower()
+    password = data.get("password") or ""
+    tenant_id = data.get("tenant_id") or ""
 
     # Input validation
     if not email or not password or not tenant_id:
@@ -173,7 +174,8 @@ def refresh_token() -> tuple[Response, int]:
         return jsonify({"error": "Content-Type must be application/json"}), 400
 
     data = request.get_json()
-    refresh_token_str = data.get("refresh_token", "")
+    # Handle explicit null as precondition violation
+    refresh_token_str = data.get("refresh_token") or ""
 
     if not refresh_token_str:
         return jsonify({"error": "Refresh token required"}), 400
