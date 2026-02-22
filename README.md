@@ -196,6 +196,45 @@ docker compose down -v     # コンテナ停止 + データ削除
 
 ---
 
+## 開発ツール設定
+
+コード品質を維持するため、以下のツールを使用しています。
+
+### Linter / Formatter
+
+| ツール | 設定 | 説明 |
+|--------|------|------|
+| **black** | `line-length = 100` | コードフォーマッター |
+| **isort** | `profile = "black"` | import文の整列 |
+| **flake8** | `max-line-length = 100` | スタイルチェック |
+| **mypy** | `disallow_untyped_defs = true` | 静的型チェック |
+
+### チェックコマンド
+
+```bash
+# フォーマットチェック
+black --check .
+isort --check-only .
+
+# Lintチェック
+flake8 .
+
+# 型チェック
+mypy .
+
+# テスト実行
+DATABASE_URL="postgresql://m2x_user:m2x_password@localhost:5432/m2x_db" python -m pytest web/tests/ -v
+```
+
+### 設定ファイル
+
+| ファイル | 用途 |
+|----------|------|
+| `pyproject.toml` | black, isort, mypy, pytest, bandit の設定 |
+| `.flake8` | flake8 の設定 |
+
+---
+
 ## 設計方針
 
 ### 1. マルチテナント対応（論理分離方式）
