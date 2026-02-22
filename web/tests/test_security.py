@@ -67,14 +67,14 @@ class TestInputValidation:
         # Should not cause server error, just return empty or error
         assert response.status_code in [200, 400]
 
-    def test_xss_in_title_handled(self, client, sample_equipment_id):
+    def test_xss_in_title_handled(self, auth_client, sample_equipment_id):
         """Test that XSS in task title is handled."""
         if sample_equipment_id is None:
             pytest.skip("No equipment available for testing")
 
         # Create a task with XSS payload
         xss_payload = '<script>alert("xss")</script>'
-        response = client.post(
+        response = auth_client.post(
             f"/api/tenants/{TEST_TENANT_ID}/tasks",
             json={"title": xss_payload, "equipment_id": sample_equipment_id},
             content_type="application/json",
@@ -130,18 +130,18 @@ class TestErrorHandling:
         response = client.get(f"/api/tenants/{TEST_TENANT_ID}/tasks/{fake_task_id}")
         assert response.status_code == 404
 
-    def test_malformed_json_rejected(self, client):
+    def test_malformed_json_rejected(self, auth_client):
         """Test that malformed JSON is rejected."""
-        response = client.post(
+        response = auth_client.post(
             f"/api/tenants/{TEST_TENANT_ID}/tasks",
             data="not valid json{",
             content_type="application/json",
         )
         assert response.status_code == 400
 
-    def test_missing_required_fields_rejected(self, client):
+    def test_missing_required_fields_rejected(self, auth_client):
         """Test that missing required fields are rejected."""
-        response = client.post(
+        response = auth_client.post(
             f"/api/tenants/{TEST_TENANT_ID}/tasks",
             json={},  # Missing title and equipment_id
             content_type="application/json",
@@ -225,7 +225,7 @@ class TestTenantIsolation:
         for task in data["items"]:
             assert task.get("tenant_id") == TEST_TENANT_ID or "tenant_id" not in task
 
-    def test_cannot_create_task_for_other_tenant_equipment(self, client, db_cursor):
+    def test_cannot_create_task_for_other_tenant_equipment(self, auth_client, db_cursor):
         """Test that creating task with equipment from another tenant fails."""
         # Get equipment from tenant 2
         db_cursor.execute("""
@@ -239,7 +239,7 @@ class TestTenantIsolation:
         if result:
             other_tenant_equipment_id = str(result["id"])
             # Try to create task in tenant 1 with tenant 2's equipment
-            response = client.post(
+            response = auth_client.post(
                 f"/api/tenants/{TEST_TENANT_ID}/tasks",
                 json={"title": "Cross-tenant test", "equipment_id": other_tenant_equipment_id},
                 content_type="application/json",

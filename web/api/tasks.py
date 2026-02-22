@@ -14,6 +14,7 @@ from typing import Any
 from api import tasks_bp
 from database import get_db_connection, get_db_cursor, tenant_context
 from flask import Response, jsonify, request
+from security import require_auth
 from validators import (
     PaginationParams,
     build_pagination_response,
@@ -240,6 +241,7 @@ def get_task_details(
 
 
 @tasks_bp.route("/api/tenants/<tenant_id>/tasks", methods=["POST"])
+@require_auth
 @validate_uuid("tenant_id")
 @validate_required_fields(["title"])
 def create_task(tenant_id: str) -> tuple[Response, int]:
@@ -353,6 +355,7 @@ def create_task(tenant_id: str) -> tuple[Response, int]:
 
 
 @tasks_bp.route("/api/tasks/<task_id>", methods=["PATCH"])
+@require_auth
 @validate_uuid("task_id")
 def update_task(task_id: str) -> tuple[Response, int]:
     """
@@ -520,6 +523,7 @@ def update_task(task_id: str) -> tuple[Response, int]:
 
 
 @tasks_bp.route("/api/tasks/<task_id>/comments", methods=["POST"])
+@require_auth
 @validate_uuid("task_id")
 @validate_required_fields(["commented_by", "comment"])
 def create_comment(task_id: str) -> tuple[Response, int]:
@@ -559,6 +563,7 @@ def create_comment(task_id: str) -> tuple[Response, int]:
 
 
 @tasks_bp.route("/api/comments/<comment_id>", methods=["DELETE"])
+@require_auth
 @validate_uuid("comment_id")
 def delete_comment(comment_id: str) -> tuple[Response, int]:
     """Soft delete a comment."""
