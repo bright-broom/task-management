@@ -72,13 +72,6 @@ JWT_ACCESS_TOKEN_EXPIRES = timedelta(hours=1)
 JWT_REFRESH_TOKEN_EXPIRES = timedelta(days=7)
 
 BCRYPT_ROUNDS = 12
-MAX_LOGIN_ATTEMPTS = 5
-LOCKOUT_DURATION_MINUTES = 30
-SESSION_TIMEOUT_MINUTES = 60
-
-RATE_LIMIT_DEFAULT = "60/minute"
-RATE_LIMIT_STRICT = "10/minute"
-RATE_LIMIT_RELAXED = "200/minute"
 
 CORS_ALLOWED_ORIGINS = os.environ.get(
     "CORS_ALLOWED_ORIGINS", "http://localhost:8080,http://localhost:3000"
@@ -118,7 +111,6 @@ def hash_password(password: str) -> str:
         bcrypt_salt = bcrypt.gensalt(rounds=BCRYPT_ROUNDS)
         return bcrypt.hashpw(password.encode("utf-8"), bcrypt_salt).decode("utf-8")
     else:
-        # PBKDF2フォールバック
         import hashlib
 
         pbkdf2_salt = secrets.token_hex(16)
@@ -131,7 +123,6 @@ def hash_password(password: str) -> str:
 def verify_password(password: str, password_hash: str) -> bool:
     """Verify password against stored hash."""
     if password_hash.startswith("pbkdf2:"):
-        # PBKDFフォールバック形式
         parts = password_hash.split("$")
         if len(parts) != 3:
             return False
@@ -153,7 +144,6 @@ def check_password_strength(password: str) -> dict[str, Any]:
     errors: list[str] = []
     score = 0
 
-    # 長さチェック
     if len(password) < 12:
         errors.append("Password must be at least 12 characters")
     else:
@@ -161,31 +151,26 @@ def check_password_strength(password: str) -> dict[str, Any]:
         if len(password) >= 16:
             score += 1
 
-    # 大文字
     if not re.search(r"[A-Z]", password):
         errors.append("Password must contain at least one uppercase letter")
     else:
         score += 1
 
-    # 小文字
     if not re.search(r"[a-z]", password):
         errors.append("Password must contain at least one lowercase letter")
     else:
         score += 1
 
-    # 数字
     if not re.search(r"\d", password):
         errors.append("Password must contain at least one number")
     else:
         score += 1
 
-    # 特殊文字
     if not re.search(r"[!@#$%^&*()_+\-=\[\]{}|;:,.<>?]", password):
         errors.append("Password must contain at least one special character")
     else:
         score += 1
 
-    # 一般的なパスワードチェック（簡易版）
     common_passwords = {
         "password",
         "123456",
@@ -284,7 +269,6 @@ def require_auth(f: F) -> F:
         if payload.get("type") != "access":
             return jsonify({"error": "Invalid token type"}), 401
 
-        # ユーザー情報をgオブジェクトに設定
         g.current_user = {
             "user_id": payload.get("sub"),
             "tenant_id": payload.get("tenant_id"),
@@ -315,56 +299,6 @@ def require_role(*allowed_roles: str) -> Callable[[F], F]:
                     ),
                     403,
                 )
-            return f(*args, **kwargs)
-
-        return decorated  # type: ignore
-
-    return decorator
-
-
-def require_tenant_access(tenant_id_param: str = "tenant_id") -> Callable[[F], F]:
-    """Decorator requiring authenticated user belongs to the tenant.
-
-    Must be used after @require_auth or @require_role.
-
-    Args:
-        tenant_id_param: Name of the URL parameter containing tenant_id
-
-    Usage:
-        @app.route("/api/tenants/<tenant_id>/tasks")
-        @require_auth
-        @require_tenant_access("tenant_id")
-        def get_tasks(tenant_id): ...
-    """
-
-    def decorator(f: F) -> F:
-        @wraps(f)
-        def decorated(*args: Any, **kwargs: Any) -> Any:
-            # Get tenant_id from URL parameters
-            url_tenant_id = kwargs.get(tenant_id_param)
-            if not url_tenant_id:
-                return jsonify({"error": "Tenant ID required"}), 400
-
-            # Get user's tenant_id from JWT (set by require_auth)
-            user_tenant_id = getattr(g, "current_user", {}).get("tenant_id")
-
-            # Admin users can access any tenant (optional feature)
-            user_role = getattr(g, "current_user", {}).get("role")
-            if user_role == "admin":
-                return f(*args, **kwargs)
-
-            # Verify user belongs to this tenant
-            if user_tenant_id != url_tenant_id:
-                return (
-                    jsonify(
-                        {
-                            "error": "Forbidden",
-                            "message": "Access denied to this tenant's resources",
-                        }
-                    ),
-                    403,
-                )
-
             return f(*args, **kwargs)
 
         return decorated  # type: ignore
@@ -519,8 +453,6 @@ def require_csrf(f: F) -> F:
             if not csrf_token:
                 return jsonify({"error": "CSRF token required"}), 403
 
-            # セッションからトークンを取得して検証
-            # 実際の実装ではセッションストアを使用
             stored_token = g.get("csrf_token")
             if stored_token and not validate_csrf_token(csrf_token, stored_token):
                 return jsonify({"error": "Invalid CSRF token"}), 403
@@ -603,12 +535,6 @@ def validate_email(email: str) -> bool:
     return bool(re.match(pattern, email)) and len(email) <= 254
 
 
-def validate_uuid(value: str) -> bool:
-    """Validate UUID format."""
-    pattern = r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
-    return bool(re.match(pattern, value.lower()))
-
-
 class SecurityEventLogger:
     """Security event logger for audit and monitoring."""
 
@@ -643,11 +569,9 @@ class SecurityEventLogger:
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
 
-        # ログレベルに応じて出力
         log_func = getattr(logger, severity, logger.info)
         log_func(f"SECURITY_EVENT: {event_type} | {log_entry}")
 
-        # データベースへの記録（有効な場合）
         if self._db_logging_enabled:
             self._log_to_database(log_entry)
 

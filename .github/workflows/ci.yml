@@ -48,11 +48,8 @@ jobs:
           PGPASSWORD: m2x_password
           PGDATABASE: m2x_task_management
         run: |
-          psql -f db/migrations/001_create_tables.sql
+          psql -f db/migrations/001_schema.sql
           psql -f db/migrations/002_seed_data.sql
-          psql -f db/migrations/004_global_standard_refactoring.sql
-          psql -f db/migrations/005_seed_data_extension.sql
-          psql -f db/migrations/006_security_enhancements.sql
 
       - name: Run tests with coverage
         env:

@@ -7,7 +7,6 @@ New code should import from infrastructure.logging directly.
 from infrastructure.logging import (
     ConsoleLogFormatter,
     StructuredLogFormatter,
-    StructuredSecurityLogger,
     clear_request_context,
     configure_logging,
     get_logger,
@@ -26,7 +25,6 @@ __all__ = [
     "user_id_var",
     "StructuredLogFormatter",
     "ConsoleLogFormatter",
-    "StructuredSecurityLogger",
     "configure_logging",
     "get_logger",
     "get_request_id",

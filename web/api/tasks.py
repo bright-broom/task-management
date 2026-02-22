@@ -92,7 +92,6 @@ def get_tasks(tenant_id: str) -> Response:
 
     with get_db_connection() as conn:
         with tenant_context(conn, tenant_id) as cur:
-            # Always filter out soft-deleted tasks
             conditions = ["t.tenant_id = %s", "t.deleted_at IS NULL"]
             params: list[Any] = [tenant_id]
 
@@ -163,7 +162,6 @@ def get_task_details(task_id: str, tenant_id: str | None = None) -> Response | t
     """
     with get_db_connection() as conn:
         with get_db_cursor(conn) as cur:
-            # Build query with optional tenant filter
             query = """
                 SELECT t.*, e.name AS equipment_name
                 FROM tasks t
@@ -299,7 +297,6 @@ def create_task(tenant_id: str) -> tuple[Response, int]:
 
     with get_db_connection() as conn:
         with tenant_context(conn, tenant_id, user_id, user_name) as cur:
-            # Verify equipment exists if provided
             if equipment_id:
                 cur.execute(
                     """SELECT id FROM equipments

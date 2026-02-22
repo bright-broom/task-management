@@ -16,7 +16,6 @@ from dataclasses import dataclass
 from functools import wraps
 from typing import Any, Callable, TypeVar
 
-from core.exceptions import OptimisticLockError
 from flask import jsonify, request
 
 F = TypeVar("F", bound=Callable[..., Any])
@@ -32,9 +31,7 @@ __all__ = [
     "validate_uuid",
     "validate_required_fields",
     "sanitize_string",
-    "OptimisticLockError",
     "validate_version",
-    "build_optimistic_update",
     "get_request_user_context",
     "build_pagination_response",
 ]
@@ -97,7 +94,6 @@ class PaginationParams:
 
         allowed = allowed_sort_columns or cls.VALID_SORT_COLUMNS
         sort_by_raw = request.args.get("sort_by", default_sort)
-        # Validate sort_by against whitelist to prevent SQL injection
         sort_by = sort_by_raw if sort_by_raw in allowed else default_sort
 
         sort_order = request.args.get("sort_order", default_order)
@@ -119,7 +115,6 @@ class PaginationParams:
         if not self.sort_by:
             return ""
 
-        # Map to actual SQL column if mapping provided
         sql_column = self.sort_by
         if column_mapping and self.sort_by in column_mapping:
             sql_column = column_mapping[self.sort_by]
@@ -239,17 +234,6 @@ def validate_version(data: dict[str, Any], field: str = "version") -> int | None
         return v
     except (TypeError, ValueError) as e:
         raise ValueError(f"Invalid version format: {e}") from e
-
-
-def build_optimistic_update(
-    updates: list[str],
-    params: list[Any],
-    current_version: int | None,
-) -> tuple[list[str], list[Any]]:
-    """Add version increment for optimistic locking."""
-    if current_version is not None:
-        updates.append("version = version + 1")
-    return updates, params
 
 
 def get_request_user_context() -> tuple[str | None, str | None]:

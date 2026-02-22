@@ -196,6 +196,45 @@ docker compose down -v     # コンテナ停止 + データ削除
 
 ---
 
+## 開発ツール設定
+
+コード品質を維持するため、以下のツールを使用しています。
+
+### Linter / Formatter
+
+| ツール | 設定 | 説明 |
+|--------|------|------|
+| **black** | `line-length = 100` | コードフォーマッター |
+| **isort** | `profile = "black"` | import文の整列 |
+| **flake8** | `max-line-length = 100` | スタイルチェック |
+| **mypy** | `disallow_untyped_defs = true` | 静的型チェック |
+
+### チェックコマンド
+
+```bash
+# フォーマットチェック
+black --check .
+isort --check-only .
+
+# Lintチェック
+flake8 .
+
+# 型チェック
+mypy .
+
+# テスト実行
+DATABASE_URL="postgresql://m2x_user:m2x_password@localhost:5432/m2x_db" python -m pytest web/tests/ -v
+```
+
+### 設定ファイル
+
+| ファイル | 用途 |
+|----------|------|
+| `pyproject.toml` | black, isort, mypy, pytest, bandit の設定 |
+| `.flake8` | flake8 の設定 |
+
+---
+
 ## 設計方針
 
 ### 1. マルチテナント対応（論理分離方式）
@@ -448,13 +487,10 @@ APIでは `null` の意味をフィールドの種類によって明確に区別
 │
 ├── db/                                # 【課題の解答】データベース設計
 │   ├── migrations/
-│   │   ├── 001_create_tables.sql      # テーブル定義（課題1 + 課題2）
-│   │   ├── 002_seed_data.sql          # サンプルデータ
-│   │   ├── 004_global_standard.sql    # エンタープライズ機能（RBAC/監査ログ）
-│   │   ├── 005_seed_data_extension.sql # 追加シードデータ
-│   │   └── 006_security_enhancements.sql # セキュリティ強化
+│   │   ├── 001_schema.sql             # テーブル定義（課題1 + 課題2 + 業種横断拡張 + エンタープライズ機能）
+│   │   └── 002_seed_data.sql          # サンプルデータ
 │   └── queries/
-│       └── sample_queries.sql         # 集計クエリ例（10種類）
+│       └── sample_queries.sql         # 集計クエリ例（37種類）
 │
 ├── docs/
 │   └── er-diagram.mmd                 # ER図（Mermaid形式・詳細版）
@@ -553,7 +589,7 @@ CREATE INDEX idx_audit_logs_lookup ON audit_logs (tenant_id, table_name, perform
 
 ## 参考: サンプルクエリ
 
-`db/queries/sample_queries.sql` に25種類のクエリ例を収録しています。
+`db/queries/sample_queries.sql` に37種類のクエリ例を収録しています。
 
 ### 基本クエリ（課題1・課題2）
 
@@ -589,3 +625,20 @@ CREATE INDEX idx_audit_logs_lookup ON audit_logs (tenant_id, table_name, perform
 | 23 | クロステナント統計 | システム管理者用ダッシュボード |
 | 24 | 設備階層とタスクサマリー | 深度付き集計 |
 | 25 | パスワードポリシー設定確認 | テナント別セキュリティ設定 |
+
+### 業種別クエリ（Cross-Industry）
+
+| # | クエリ | 説明 |
+|---|--------|------|
+| 26 | 設備カテゴリ別集計 | カテゴリ・タイプ別の設備数 |
+| 27 | 計測ポイント一覧 | センサー閾値・タグ付き |
+| 28 | 計測データ統計 | ポイント別の時系列統計 |
+| 29 | 点検テンプレート一覧 | 規制点検・自由点検分類 |
+| 30 | 今後の点検予定 | 次回点検日の自動計算 |
+| 31 | 作業許可証（PTW）管理 | 危険作業の許可フロー |
+| 32 | インシデント分析 | 種別・重大度別集計 |
+| 33 | シフト別作業員配置 | 本日の配置表 |
+| 34 | 設備総合ダッシュボード | 点検・タスク・異常の統合ビュー |
+| 35 | 水質モニタリング | 水道施設向けリアルタイム監視 |
+| 36 | HACCP温度記録 | 食品工場向け温度管理 |
+| 37 | 安全弁点検状況 | 化学プラント向け規制点検 |

@@ -112,11 +112,9 @@ class TestMultiTenantIsolation:
         )
         tenant2_count = db_cursor.fetchone()["count"]
 
-        # Verify different tenants have different data
         assert tenant1_count > 0, "Tenant 1 should have equipment data"
         assert tenant2_count > 0, "Tenant 2 should have equipment data"
 
-        # Verify cross-tenant query returns different counts
         db_cursor.execute("SELECT COUNT(*) as count FROM equipments")
         total_count = db_cursor.fetchone()["count"]
         assert total_count == tenant1_count + tenant2_count
@@ -178,7 +176,6 @@ class TestConstraints:
 
     def test_task_part_quantity_positive(self, db_cursor):
         """Verify task_parts quantity must be positive."""
-        # Get a task and part ID first
         db_cursor.execute("SELECT id FROM tasks WHERE tenant_id = %s LIMIT 1", (TEST_TENANT_ID,))
         task = db_cursor.fetchone()
 
@@ -208,7 +205,6 @@ class TestEAVPattern:
         """)
         results = {str(row["tenant_id"]): row["count"] for row in db_cursor.fetchall()}
 
-        # Different tenants should have different field definitions
         assert TEST_TENANT_ID in results
         assert TEST_TENANT_ID_2 in results
 
@@ -279,7 +275,6 @@ class TestEquipmentHierarchy:
         results = db_cursor.fetchall()
         assert len(results) > 0
 
-        # Verify hierarchy levels
         depths = set(row["depth"] for row in results)
         assert 0 in depths, "Should have root level equipment"
 
@@ -324,7 +319,6 @@ class TestOptimisticLocking:
 
     def test_version_increments_on_update(self, db_cursor):
         """Verify version increments on update."""
-        # Get a task
         db_cursor.execute(
             """
             SELECT id, version FROM tasks
@@ -337,7 +331,6 @@ class TestOptimisticLocking:
 
         if task:
             old_version = task["version"]
-            # Update the task
             db_cursor.execute(
                 """
                 UPDATE tasks SET title = title || ' (updated)'
@@ -345,14 +338,12 @@ class TestOptimisticLocking:
             """,
                 (task["id"],),
             )
-            # Check new version
             db_cursor.execute("SELECT version FROM tasks WHERE id = %s", (task["id"],))
             new_task = db_cursor.fetchone()
             assert new_task["version"] == old_version + 1, "Version should increment on update"
 
     def test_concurrent_update_conflict_detected(self, db_cursor, db_connection):
         """Test that concurrent updates with wrong version are rejected."""
-        # Get a task
         db_cursor.execute(
             """
             SELECT id, version FROM tasks
@@ -385,7 +376,6 @@ class TestCrossTenantConstraints:
 
     def test_equipment_parent_must_be_same_tenant(self, db_cursor):
         """Verify parent equipment must belong to same tenant."""
-        # Get equipment from different tenants
         db_cursor.execute(
             """
             SELECT id FROM equipments WHERE tenant_id = %s AND deleted_at IS NULL LIMIT 1
@@ -417,7 +407,6 @@ class TestCrossTenantConstraints:
 
     def test_circular_reference_prevented(self, db_cursor):
         """Verify circular references in equipment hierarchy are prevented."""
-        # Get equipment hierarchy
         db_cursor.execute(
             """
             SELECT e.id, e.parent_equipment_id

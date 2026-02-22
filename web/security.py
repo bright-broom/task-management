@@ -31,7 +31,6 @@ from utils.security import (
     security_logger,
     validate_csrf_token,
     validate_email,
-    validate_uuid,
     verify_password,
 )
 
@@ -45,7 +44,6 @@ __all__ = [
     "verify_password",
     "check_password_strength",
     "validate_email",
-    "validate_uuid",
     "create_access_token",
     "create_refresh_token",
     "decode_token",

@@ -171,48 +171,39 @@ class TestTenantIsolation:
 
     def test_tenant_cannot_access_other_tenant_tasks(self, client, db_cursor):
         """Test that tenants cannot access other tenant's tasks."""
-        # Get tasks for tenant 1
         response1 = client.get(f"/api/tenants/{TEST_TENANT_ID}/tasks")
         data1 = json.loads(response1.data)
 
-        # Get tasks for tenant 2
         tenant2_id = "22222222-2222-2222-2222-222222222222"
         response2 = client.get(f"/api/tenants/{tenant2_id}/tasks")
         data2 = json.loads(response2.data)
 
-        # Verify no overlap in task IDs
         task_ids_1 = {item["id"] for item in data1["items"]}
         task_ids_2 = {item["id"] for item in data2["items"]}
         assert task_ids_1.isdisjoint(task_ids_2)
 
     def test_tenant_cannot_access_other_tenant_equipments(self, client):
         """Test that equipments are isolated by tenant."""
-        # Get equipments for tenant 1
         response1 = client.get(f"/api/tenants/{TEST_TENANT_ID}/equipments")
         data1 = json.loads(response1.data)
 
-        # Get equipments for tenant 2
         tenant2_id = "22222222-2222-2222-2222-222222222222"
         response2 = client.get(f"/api/tenants/{tenant2_id}/equipments")
         data2 = json.loads(response2.data)
 
-        # Verify no overlap in equipment IDs
         equip_ids_1 = {item["id"] for item in data1.get("items", data1)}
         equip_ids_2 = {item["id"] for item in data2.get("items", data2)}
         assert equip_ids_1.isdisjoint(equip_ids_2)
 
     def test_tenant_cannot_access_other_tenant_parts(self, client):
         """Test that parts are isolated by tenant."""
-        # Get parts for tenant 1
         response1 = client.get(f"/api/tenants/{TEST_TENANT_ID}/parts")
         data1 = json.loads(response1.data)
 
-        # Get parts for tenant 2
         tenant2_id = "22222222-2222-2222-2222-222222222222"
         response2 = client.get(f"/api/tenants/{tenant2_id}/parts")
         data2 = json.loads(response2.data)
 
-        # Verify no overlap in part IDs
         part_ids_1 = {item["id"] for item in data1.get("items", data1)}
         part_ids_2 = {item["id"] for item in data2.get("items", data2)}
         assert part_ids_1.isdisjoint(part_ids_2)
@@ -227,7 +218,6 @@ class TestTenantIsolation:
 
     def test_cannot_create_task_for_other_tenant_equipment(self, auth_client, db_cursor):
         """Test that creating task with equipment from another tenant fails."""
-        # Get equipment from tenant 2
         db_cursor.execute("""
             SELECT id FROM equipments
             WHERE tenant_id = '22222222-2222-2222-2222-222222222222'
@@ -253,7 +243,6 @@ class TestCrossTenantAPIProtection:
 
     def test_task_detail_tenant_mismatch(self, client, db_cursor):
         """Test accessing task detail with wrong tenant ID returns 404."""
-        # Get a task from tenant 1
         db_cursor.execute(
             """
             SELECT id FROM tasks
@@ -274,7 +263,6 @@ class TestCrossTenantAPIProtection:
 
     def test_equipment_detail_tenant_mismatch(self, client, db_cursor):
         """Test accessing equipment detail with wrong tenant ID returns 404."""
-        # Get an equipment from tenant 1
         db_cursor.execute(
             """
             SELECT id FROM equipments
@@ -295,7 +283,6 @@ class TestCrossTenantAPIProtection:
 
     def test_part_detail_tenant_mismatch(self, client, db_cursor):
         """Test accessing part detail with wrong tenant ID returns 404."""
-        # Get a part from tenant 1
         db_cursor.execute(
             """
             SELECT id FROM parts
@@ -344,13 +331,9 @@ class TestLoggingConfig:
             set_request_context,
         )
 
-        # Set context
         set_request_context(request_id="test-123", tenant_id="tenant-456")
-
-        # Get request ID
         assert get_request_id() == "test-123"
 
-        # Clear context
         clear_request_context()
         assert get_request_id() == ""
 

@@ -53,7 +53,6 @@ def login() -> tuple[Response, int]:
     password = data.get("password") or ""
     tenant_id = data.get("tenant_id") or ""
 
-    # Input validation
     if not email or not password or not tenant_id:
         security_logger.login_failure(email, "missing_fields")
         return jsonify({"error": "Email, password, and tenant_id are required"}), 400
@@ -68,7 +67,6 @@ def login() -> tuple[Response, int]:
 
     with get_db_connection() as conn:
         with get_db_cursor(conn) as cur:
-            # User lookup
             cur.execute(
                 """
                 SELECT id, tenant_id, email, password_hash, display_name, role, status,
@@ -84,16 +82,13 @@ def login() -> tuple[Response, int]:
                 security_logger.login_failure(email, "user_not_found", tenant_id)
                 return jsonify({"error": "Invalid email or password"}), 401
 
-            # Account lock check
             if user["status"] == "locked" or (
                 user["locked_until"] and user["locked_until"] > datetime.now(timezone.utc)
             ):
                 security_logger.login_failure(email, "account_locked", tenant_id)
                 return jsonify({"error": "Account is locked"}), 403
 
-            # Password verification
             if not user["password_hash"] or not verify_password(password, user["password_hash"]):
-                # Increment failure count
                 cur.execute(
                     """
                     UPDATE users
@@ -112,7 +107,6 @@ def login() -> tuple[Response, int]:
                 security_logger.login_failure(email, "invalid_password", tenant_id)
                 return jsonify({"error": "Invalid email or password"}), 401
 
-            # Login success: reset counter
             cur.execute(
                 """
                 UPDATE users
@@ -125,7 +119,6 @@ def login() -> tuple[Response, int]:
             )
             conn.commit()
 
-    # Generate tokens
     access_token = create_access_token(
         user_id=str(user["id"]),
         tenant_id=str(user["tenant_id"]),
@@ -180,7 +173,6 @@ def refresh_token() -> tuple[Response, int]:
     if not refresh_token_str:
         return jsonify({"error": "Refresh token required"}), 400
 
-    # Token verification
     payload = decode_token(refresh_token_str)
     if not payload or payload.get("type") != "refresh":
         return jsonify({"error": "Invalid refresh token"}), 401
@@ -191,7 +183,6 @@ def refresh_token() -> tuple[Response, int]:
     if not isinstance(tenant_id, str):
         return jsonify({"error": "Invalid token payload"}), 401
 
-    # Get fresh user info
     with get_db_connection() as conn:
         with get_db_cursor(conn) as cur:
             cur.execute(
@@ -207,7 +198,6 @@ def refresh_token() -> tuple[Response, int]:
             if not user or user["status"] != "active":
                 return jsonify({"error": "User not found or inactive"}), 401
 
-    # Generate new access token
     new_access_token = create_access_token(
         user_id=str(user["id"]),
         tenant_id=tenant_id,

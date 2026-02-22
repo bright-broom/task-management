@@ -8,7 +8,6 @@ This package contains Flask blueprints for different API domains:
 
 from flask import Blueprint
 
-# Create blueprints
 tasks_bp = Blueprint("tasks", __name__)
 auth_bp = Blueprint("auth", __name__)
 
@@ -20,8 +19,7 @@ def register_blueprints(app: object) -> None:
     Args:
         app: Flask application instance
     """
-    # Import routes here to avoid circular imports
-    # Register with appropriate prefixes
+    # Import here to avoid circular imports
     from flask import Flask
 
     from . import auth, tasks  # noqa: F401

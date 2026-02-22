@@ -20,10 +20,6 @@ from datetime import datetime, timezone
 from functools import wraps
 from typing import Any, Callable, TypeVar
 
-# ============================================================================
-# Context Variables for Request-scoped Data
-# ============================================================================
-
 request_id_var: ContextVar[str] = ContextVar("request_id", default="")
 tenant_id_var: ContextVar[str] = ContextVar("tenant_id", default="")
 user_id_var: ContextVar[str] = ContextVar("user_id", default="")
@@ -68,11 +64,6 @@ def get_request_id() -> str:
     return request_id_var.get()
 
 
-# ============================================================================
-# JSON Log Formatter
-# ============================================================================
-
-
 class StructuredLogFormatter(logging.Formatter):
     """
     JSON形式の構造化ログフォーマッター。
@@ -106,14 +97,12 @@ class StructuredLogFormatter(logging.Formatter):
             "message": record.getMessage(),
         }
 
-        # サービスメタデータ
         log_data["service"] = self._service
         log_data["environment"] = self._environment
 
         if self.include_hostname:
             log_data["hostname"] = self._hostname
 
-        # リクエストコンテキスト
         request_id = request_id_var.get()
         if request_id:
             log_data["request_id"] = request_id
@@ -126,14 +115,12 @@ class StructuredLogFormatter(logging.Formatter):
         if user_id:
             log_data["user_id"] = user_id
 
-        # ソース位置情報
         log_data["source"] = {
             "file": record.pathname,
             "line": record.lineno,
             "function": record.funcName,
         }
 
-        # 例外情報
         if record.exc_info:
             log_data["exception"] = {
                 "type": record.exc_info[0].__name__ if record.exc_info[0] else None,
@@ -141,7 +128,6 @@ class StructuredLogFormatter(logging.Formatter):
                 "traceback": self.formatException(record.exc_info),
             }
 
-        # 追加フィールド（record.__dict__から抽出）
         extra_fields = {}
         standard_fields = {
             "name",
@@ -203,7 +189,6 @@ class ConsoleLogFormatter(logging.Formatter):
         color = self.COLORS.get(record.levelname, "")
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
 
-        # コンテキスト情報を追加
         context_parts = []
         request_id = request_id_var.get()
         if request_id:
@@ -228,11 +213,6 @@ class ConsoleLogFormatter(logging.Formatter):
         return base
 
 
-# ============================================================================
-# Logger Configuration
-# ============================================================================
-
-
 def configure_logging(
     log_level: str | None = None,
     json_format: bool | None = None,
@@ -251,11 +231,9 @@ def configure_logging(
         LOG_FORMAT: 'json' または 'console'（デフォルト: 環境に応じて自動）
         ENVIRONMENT: 'production', 'staging', 'development' など
     """
-    # ログレベルの決定
     level_str = log_level or os.environ.get("LOG_LEVEL", "INFO")
     level = getattr(logging, level_str.upper(), logging.INFO)
 
-    # フォーマットの決定
     if json_format is None:
         log_format = os.environ.get("LOG_FORMAT", "")
         environment = os.environ.get("ENVIRONMENT", "development")
@@ -264,19 +242,15 @@ def configure_logging(
             "staging",
         )
 
-    # ストリームの決定
     if stream is None:
         stream = sys.stderr
 
-    # ルートロガーの設定
     root_logger = logging.getLogger()
     root_logger.setLevel(level)
 
-    # 既存ハンドラーをクリア
     for handler in root_logger.handlers[:]:
         root_logger.removeHandler(handler)
 
-    # ハンドラーを追加
     handler = logging.StreamHandler(stream)
     handler.setLevel(level)
 
@@ -303,11 +277,6 @@ def get_logger(name: str) -> logging.Logger:
         設定済みのロガー
     """
     return logging.getLogger(name)
-
-
-# ============================================================================
-# Logging Decorators
-# ============================================================================
 
 
 def log_function_call(logger: logging.Logger | None = None) -> Callable[[F], F]:
@@ -355,11 +324,6 @@ def log_function_call(logger: logging.Logger | None = None) -> Callable[[F], F]:
     return decorator
 
 
-# ============================================================================
-# Flask Integration
-# ============================================================================
-
-
 def setup_flask_logging(app: Any) -> None:
     """
     Flaskアプリケーションにログミドルウェアを設定。
@@ -374,13 +338,11 @@ def setup_flask_logging(app: Any) -> None:
     @app.before_request
     def before_request() -> None:
         """リクエスト開始時の処理。"""
-        # リクエストIDの設定（ヘッダーから取得または生成）
         request_id = request.headers.get("X-Request-ID", str(uuid.uuid4()))
         set_request_context(request_id=request_id)
         g.request_id = request_id
         g.request_start_time = datetime.now(timezone.utc)
 
-        # リクエストログ
         logger.info(
             f"Request started: {request.method} {request.path}",
             extra={
@@ -394,17 +356,14 @@ def setup_flask_logging(app: Any) -> None:
     @app.after_request
     def after_request(response: Any) -> Any:
         """リクエスト完了時の処理。"""
-        # レスポンスにリクエストIDを付与
         if hasattr(g, "request_id"):
             response.headers["X-Request-ID"] = g.request_id
 
-        # 処理時間の計算
         duration_ms = 0.0
         if hasattr(g, "request_start_time"):
             duration = datetime.now(timezone.utc) - g.request_start_time
             duration_ms = duration.total_seconds() * 1000
 
-        # レスポンスログ
         logger.info(
             f"Request completed: {request.method} {request.path} -> {response.status_code}",
             extra={
@@ -428,106 +387,3 @@ def setup_flask_logging(app: Any) -> None:
                 exc_info=True,
             )
         clear_request_context()
-
-
-# ============================================================================
-# Security Event Logger Integration
-# ============================================================================
-
-
-class StructuredSecurityLogger:
-    """
-    セキュリティイベント用の構造化ロガー。
-
-    セキュリティ監査に必要な情報を構造化形式で記録。
-    """
-
-    def __init__(self) -> None:
-        self.logger = get_logger("security")
-
-    def log_event(
-        self,
-        event_type: str,
-        severity: str,
-        message: str,
-        **context: Any,
-    ) -> None:
-        """
-        セキュリティイベントを記録。
-
-        Args:
-            event_type: イベントタイプ（auth_success, auth_failure, rate_limit等）
-            severity: 重要度（low, medium, high, critical）
-            message: イベントメッセージ
-            **context: 追加コンテキスト
-        """
-        extra = {
-            "event_type": event_type,
-            "severity": severity,
-            "security_event": True,
-            **context,
-        }
-
-        level_map = {
-            "low": logging.INFO,
-            "medium": logging.WARNING,
-            "high": logging.ERROR,
-            "critical": logging.CRITICAL,
-        }
-        level = level_map.get(severity, logging.INFO)
-
-        self.logger.log(level, message, extra=extra)
-
-    def auth_success(self, user_id: str, method: str, **context: Any) -> None:
-        """認証成功イベント。"""
-        self.log_event(
-            "auth_success",
-            "low",
-            f"Authentication successful for user {user_id}",
-            user_id=user_id,
-            auth_method=method,
-            **context,
-        )
-
-    def auth_failure(self, reason: str, **context: Any) -> None:
-        """認証失敗イベント。"""
-        self.log_event(
-            "auth_failure",
-            "medium",
-            f"Authentication failed: {reason}",
-            failure_reason=reason,
-            **context,
-        )
-
-    def rate_limit_exceeded(self, ip_address: str, endpoint: str, **context: Any) -> None:
-        """レート制限超過イベント。"""
-        self.log_event(
-            "rate_limit_exceeded",
-            "medium",
-            f"Rate limit exceeded for {ip_address} on {endpoint}",
-            ip_address=ip_address,
-            endpoint=endpoint,
-            **context,
-        )
-
-    def suspicious_activity(self, description: str, **context: Any) -> None:
-        """不審なアクティビティイベント。"""
-        self.log_event(
-            "suspicious_activity",
-            "high",
-            f"Suspicious activity detected: {description}",
-            **context,
-        )
-
-    def security_violation(self, description: str, **context: Any) -> None:
-        """セキュリティ違反イベント。"""
-        self.log_event(
-            "security_violation",
-            "critical",
-            f"Security violation: {description}",
-            **context,
-        )
-
-
-# シングルトンインスタンス
-structured_security_logger = StructuredSecurityLogger()
