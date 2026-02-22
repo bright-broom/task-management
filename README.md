@@ -46,19 +46,19 @@
 
 #### タスク詳細画面（Task Details）
 
-| 項目 | 例 |
-|---|---|
-| タスク名 | Replace the oil in the engine |
-| ステータス（Status） | todo |
-| 期日（Due date） | Dec 20, 2023 |
-| 担当者（Assigned to） | John Smith |
-| 設備（Equipment） | Boiler 1 |
-| 説明（Description） | Boiler 1 has 237 error. We are fixing it now. |
-| Cause of stoppage ※ | Oil contamination |
-| Repair details ※ | Drained old oil, replaced oil filter, flushed system, filled with new oil to proper level |
-| 使用部品（Parts Used） | Oil Filter（1232-13434AB, 数量1）、Oil（#5678, 数量3） |
+| 項目 | 例 | 備考 |
+|---|---|---|
+| タスク名 | Replace the oil in the engine | **必須** |
+| ステータス（Status） | todo | **必須** |
+| 期日（Due date） | Dec 20, 2023 | |
+| 担当者（Assigned to） | John Smith | |
+| 設備（Equipment） | Boiler 1 | 任意（設備なしのタスクも可） |
+| 説明（Description） | Boiler 1 has 237 error. We are fixing it now. | |
+| Cause of stoppage ※ | Oil contamination | テナント独自項目 |
+| Repair details ※ | Drained old oil, replaced oil filter, flushed system, filled with new oil to proper level | テナント独自項目 |
+| 使用部品（Parts Used） | Oil Filter（1232-13434AB, 数量1）、Oil（#5678, 数量3） | |
 
-**必須項目:** タスク名、ステータス
+**必須項目:** タスク名、ステータス（設備は任意）
 
 > **※ テナント独自入力項目について:**
 > タスクの入力項目はテナントごとに設定可能です。入力項目自体もテナントが独自に作成できます。上記の「Cause of stoppage」「Repair details」はテナント独自入力項目の例です。
@@ -390,6 +390,7 @@ CREATE TRIGGER prevent_audit_log_update
 | 5 | タスクに複数部品を使用数量付きで登録可能 | タスク詳細画面の「Parts Used」から推定 |
 | 6 | カスタムフィールドはタスクに紐づく | 画面仕様の独自入力項目がタスク詳細画面に表示されていることから推定 |
 | 7 | コメント投稿者はユーザーテーブルとは別管理 | ユーザーテーブルの仕様が不明なため、文字列で保持 |
+| 8 | タスクと設備の紐づけは任意 | 課題要件の必須項目は「タスク名、ステータス」のみ。設備なしのタスクも登録可能 |
 
 ---
 
