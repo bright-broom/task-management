@@ -91,7 +91,8 @@ def get_tasks(tenant_id: str) -> Response:
 
     with get_db_connection() as conn:
         with tenant_context(conn, tenant_id) as cur:
-            conditions = ["t.tenant_id = %s"]
+            # Always filter out soft-deleted tasks
+            conditions = ["t.tenant_id = %s", "t.deleted_at IS NULL"]
             params: list[Any] = [tenant_id]
 
             if status_filter and status_filter in VALID_TASK_STATUSES:
@@ -138,7 +139,7 @@ def get_task(tenant_id: str, task_id: str) -> tuple[Response, int]:
                 SELECT t.*, e.name AS equipment_name
                 FROM tasks t
                 LEFT JOIN equipments e ON t.equipment_id = e.id
-                WHERE t.id = %s AND t.tenant_id = %s
+                WHERE t.id = %s AND t.tenant_id = %s AND t.deleted_at IS NULL
             """,
                 (task_id, tenant_id),
             )
@@ -161,7 +162,7 @@ def get_task_details(task_id: str) -> Response:
                 SELECT t.*, e.name AS equipment_name
                 FROM tasks t
                 LEFT JOIN equipments e ON t.equipment_id = e.id
-                WHERE t.id = %s
+                WHERE t.id = %s AND t.deleted_at IS NULL
             """,
                 (task_id,),
             )
@@ -512,7 +513,11 @@ def create_comment(task_id: str) -> tuple[Response, int]:
 
     with get_db_connection() as conn:
         with get_db_cursor(conn) as cur:
-            cur.execute("SELECT tenant_id FROM tasks WHERE id = %s", (task_id,))
+            # Don't allow comments on deleted tasks
+            cur.execute(
+                "SELECT tenant_id FROM tasks WHERE id = %s AND deleted_at IS NULL",
+                (task_id,),
+            )
             task = cur.fetchone()
 
             if not task:
