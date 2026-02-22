@@ -1,4 +1,341 @@
 -- ============================================================================
+-- M2X課題: 工場向けタスク管理システム テーブル定義
+-- ============================================================================
+--
+-- 【設計方針】
+--
+-- 1. マルチテナント対応
+--    - 全テーブルに tenant_id を持たせ、論理的なデータ分離を実現
+--    - 外部キー制約で親テーブルの tenant_id との整合性を保証
+--    - インデックスは tenant_id を先頭に配置し、テナント単位のクエリを高速化
+--
+-- 2. UUID 主キー
+--    - マルチテナント環境でのID衝突を回避
+--    - 将来的なテナント間データ移行やシャーディングに対応しやすい
+--    - gen_random_uuid() で自動生成（PostgreSQL 13+）
+--
+-- 3. EAV（Entity-Attribute-Value）パターン
+--    - テナントごとに異なるカスタム入力項目を柔軟に定義可能
+--    - custom_field_definitions: 項目のメタデータ（名前、型、必須フラグ等）
+--    - custom_field_values: 各タスクに対する実際の値
+--    - 詳細は該当テーブルのコメントを参照
+--
+-- ============================================================================
+
+-- UUID生成用の拡張機能を有効化
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+
+-- ============================================================================
+-- タスクステータス用 ENUM 型
+-- ============================================================================
+-- 画面仕様に基づき、固定の3ステータスをENUM型で定義
+-- 将来的にテナント別カスタムステータスが必要な場合は、マスタテーブルに移行可能
+
+CREATE TYPE task_status AS ENUM ('todo', 'in_progress', 'done');
+
+-- ============================================================================
+-- カスタムフィールドのデータ型用 ENUM
+-- ============================================================================
+-- EAVパターンで使用する値の型を定義
+-- アプリケーション側で型に応じたバリデーションを実施
+
+CREATE TYPE field_type AS ENUM ('text', 'number', 'date', 'boolean', 'select');
+
+-- ============================================================================
+-- tenants: テナント（工場環境）マスタ
+-- ============================================================================
+-- マルチテナントの基盤となるテーブル
+-- 各工場や組織がそれぞれ独立した環境としてデータを管理
+
+CREATE TABLE tenants (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name VARCHAR(255) NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+COMMENT ON TABLE tenants IS 'テナント（工場環境）マスタ。マルチテナントの基盤となるテーブル';
+COMMENT ON COLUMN tenants.name IS 'テナント名（工場名・組織名）';
+
+-- ============================================================================
+-- equipments: 設備マスタ（階層構造対応）
+-- ============================================================================
+-- 設備は親子関係を持つことができる（例: ライン > 機械 > ユニット）
+-- parent_equipment_id による自己参照で階層を表現
+
+CREATE TABLE equipments (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    parent_equipment_id UUID REFERENCES equipments(id) ON DELETE SET NULL,
+    name VARCHAR(255) NOT NULL,
+    manufacturer VARCHAR(255),
+    description TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    -- NOTE: 親設備が同一テナント内であることはアプリケーション層で検証
+);
+
+CREATE INDEX idx_equipments_tenant ON equipments(tenant_id);
+CREATE INDEX idx_equipments_parent ON equipments(tenant_id, parent_equipment_id);
+CREATE INDEX idx_equipments_name ON equipments(tenant_id, name);
+
+COMMENT ON TABLE equipments IS '設備マスタ。親子階層構造に対応（自己参照）';
+COMMENT ON COLUMN equipments.parent_equipment_id IS '親設備ID。NULLの場合はトップレベル設備';
+COMMENT ON COLUMN equipments.manufacturer IS '製造元';
+
+-- ============================================================================
+-- parts: 部品マスタ（在庫・発注点管理）
+-- ============================================================================
+-- 部品の在庫数と発注点を管理し、在庫切れを防止
+
+CREATE TABLE parts (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    name VARCHAR(255) NOT NULL,
+    part_number VARCHAR(100),
+    location VARCHAR(255),
+    description TEXT,
+    stock_quantity INTEGER NOT NULL DEFAULT 0,
+    reorder_point INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT chk_stock_quantity CHECK (stock_quantity >= 0),
+    CONSTRAINT chk_reorder_point CHECK (reorder_point >= 0)
+);
+
+CREATE INDEX idx_parts_tenant ON parts(tenant_id);
+CREATE UNIQUE INDEX idx_parts_number ON parts(tenant_id, part_number) WHERE part_number IS NOT NULL;
+
+COMMENT ON TABLE parts IS '部品マスタ。在庫数と発注点を管理';
+COMMENT ON COLUMN parts.location IS '保管場所';
+COMMENT ON COLUMN parts.description IS '説明';
+COMMENT ON COLUMN parts.stock_quantity IS '現在の在庫数';
+COMMENT ON COLUMN parts.reorder_point IS '発注点（この数量を下回ったら発注が必要）';
+
+-- ============================================================================
+-- equipment_parts: 設備・部品 多対多関連
+-- ============================================================================
+-- 部品詳細画面の「Related Equipment」に対応
+-- 1つの部品は複数の設備で使用され、1つの設備は複数の部品を必要とする
+
+CREATE TABLE equipment_parts (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    equipment_id UUID NOT NULL REFERENCES equipments(id) ON DELETE CASCADE,
+    part_id UUID NOT NULL REFERENCES parts(id) ON DELETE CASCADE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT uq_equipment_part UNIQUE (equipment_id, part_id)
+);
+
+CREATE INDEX idx_equipment_parts_tenant ON equipment_parts(tenant_id);
+CREATE INDEX idx_equipment_parts_equipment ON equipment_parts(equipment_id);
+CREATE INDEX idx_equipment_parts_part ON equipment_parts(part_id);
+
+COMMENT ON TABLE equipment_parts IS '設備と部品の多対多関連テーブル';
+
+-- ============================================================================
+-- tasks: タスク管理
+-- ============================================================================
+-- 工場での作業タスクを管理。設備に紐づけて登録し、後から集計可能
+-- NOTE: equipment_id は任意項目（課題要件では設備は必須項目ではない）
+
+CREATE TABLE tasks (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    equipment_id UUID REFERENCES equipments(id) ON DELETE SET NULL,
+    title VARCHAR(255) NOT NULL,
+    description TEXT,
+    status task_status NOT NULL DEFAULT 'todo',
+    due_date DATE,
+    assigned_to VARCHAR(255),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_tasks_tenant ON tasks(tenant_id);
+CREATE INDEX idx_tasks_equipment ON tasks(tenant_id, equipment_id) WHERE equipment_id IS NOT NULL;
+CREATE INDEX idx_tasks_status ON tasks(tenant_id, status);
+CREATE INDEX idx_tasks_due_date ON tasks(tenant_id, due_date);
+
+COMMENT ON TABLE tasks IS 'タスク管理テーブル。設備への紐づけは任意';
+COMMENT ON COLUMN tasks.equipment_id IS '設備ID（任意）。NULLの場合は設備に紐づかないタスク';
+COMMENT ON COLUMN tasks.status IS 'タスクステータス: todo（未着手）, in_progress（進行中）, done（完了）';
+COMMENT ON COLUMN tasks.assigned_to IS '担当者名';
+
+-- ============================================================================
+-- task_parts: タスク・部品関連（使用数量付き）
+-- ============================================================================
+-- タスク詳細画面の「Parts Used」に対応
+-- タスクで使用する部品と数量を記録
+
+CREATE TABLE task_parts (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    task_id UUID NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+    part_id UUID NOT NULL REFERENCES parts(id) ON DELETE RESTRICT,
+    quantity INTEGER NOT NULL DEFAULT 1,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT uq_task_part UNIQUE (task_id, part_id),
+    CONSTRAINT chk_quantity CHECK (quantity > 0)
+);
+
+CREATE INDEX idx_task_parts_tenant ON task_parts(tenant_id);
+CREATE INDEX idx_task_parts_task ON task_parts(task_id);
+CREATE INDEX idx_task_parts_part ON task_parts(part_id);
+
+COMMENT ON TABLE task_parts IS 'タスクと部品の関連テーブル。使用数量を記録';
+COMMENT ON COLUMN task_parts.quantity IS '使用数量';
+
+-- ============================================================================
+-- custom_field_definitions: テナント独自カスタムフィールド定義
+-- ============================================================================
+-- 【EAVパターン - 属性定義部分】
+--
+-- このテーブルはEAV（Entity-Attribute-Value）パターンの「Attribute」部分を担う。
+-- テナントごとに独自の入力項目（カスタムフィールド）を定義できる。
+--
+-- 【採用理由】
+-- - テナントごとに異なる入力項目を柔軟に追加・変更できる
+-- - スキーマ変更なしで新しい項目を追加可能
+-- - 画面仕様の「Cause of stoppage」「Repair details」等のテナント固有項目に対応
+--
+-- 【トレードオフ】
+-- - 型安全性はアプリケーション層で担保する必要がある
+-- - 複雑な集計クエリはJSON型やピボットクエリが必要になる場合がある
+
+CREATE TABLE custom_field_definitions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    field_name VARCHAR(255) NOT NULL,
+    field_type field_type NOT NULL DEFAULT 'text',
+    is_required BOOLEAN NOT NULL DEFAULT FALSE,
+    display_order INTEGER NOT NULL DEFAULT 0,
+    options JSONB,  -- field_type='select' の場合の選択肢リスト
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT uq_field_name_per_tenant UNIQUE (tenant_id, field_name)
+);
+
+CREATE INDEX idx_custom_field_definitions_tenant ON custom_field_definitions(tenant_id);
+
+COMMENT ON TABLE custom_field_definitions IS 'テナント独自カスタムフィールド定義（EAVパターンのAttribute部分）';
+COMMENT ON COLUMN custom_field_definitions.field_name IS 'フィールド名（例: Cause of stoppage, Repair details）';
+COMMENT ON COLUMN custom_field_definitions.field_type IS 'データ型: text, number, date, boolean, select';
+COMMENT ON COLUMN custom_field_definitions.is_required IS '必須フラグ';
+COMMENT ON COLUMN custom_field_definitions.display_order IS '画面表示順';
+COMMENT ON COLUMN custom_field_definitions.options IS 'select型の場合の選択肢（JSON配列）';
+
+-- ============================================================================
+-- custom_field_values: カスタムフィールドの値
+-- ============================================================================
+-- 【EAVパターン - 値格納部分】
+--
+-- このテーブルはEAV（Entity-Attribute-Value）パターンの「Value」部分を担う。
+-- 各タスクに対して、定義されたカスタムフィールドの値を格納する。
+--
+-- 【設計ポイント】
+-- - value カラムは TEXT 型で統一し、アプリケーション層で型変換
+-- - field_type に応じたバリデーションはアプリケーション層で実施
+-- - Entity（タスク）× Attribute（フィールド定義）で一意制約
+
+CREATE TABLE custom_field_values (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    task_id UUID NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+    field_definition_id UUID NOT NULL REFERENCES custom_field_definitions(id) ON DELETE CASCADE,
+    value TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT uq_task_field UNIQUE (task_id, field_definition_id)
+);
+
+CREATE INDEX idx_custom_field_values_tenant ON custom_field_values(tenant_id);
+CREATE INDEX idx_custom_field_values_task ON custom_field_values(task_id);
+CREATE INDEX idx_custom_field_values_definition ON custom_field_values(field_definition_id);
+
+COMMENT ON TABLE custom_field_values IS 'カスタムフィールドの値（EAVパターンのValue部分）';
+COMMENT ON COLUMN custom_field_values.value IS 'フィールドの値（TEXT型で統一、型変換はアプリケーション層）';
+
+-- ============================================================================
+-- task_comments: タスクコメント【課題2: 追加機能】
+-- ============================================================================
+-- 【機能概要】
+-- タスクに対してコメント（メモ・連絡事項）を複数登録できる機能。
+--
+-- 【工場タスク管理における価値】
+-- - 作業履歴の時系列記録: 誰がいつどのような対応をしたかを追跡
+-- - 担当者間の情報共有: シフト交代時の引き継ぎをスムーズに
+-- - 問題分析の支援: 過去のコメントを参照して再発防止策を検討
+--
+-- 【設計ポイント】
+-- - commented_by は文字列で記録（将来的にユーザーテーブルができれば外部キーに変更可能）
+-- - 削除はソフトデリート（deleted_at）で履歴を保持
+
+CREATE TABLE task_comments (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    task_id UUID NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+    commented_by VARCHAR(255) NOT NULL,
+    comment TEXT NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    deleted_at TIMESTAMP WITH TIME ZONE
+);
+
+CREATE INDEX idx_task_comments_tenant ON task_comments(tenant_id);
+CREATE INDEX idx_task_comments_task ON task_comments(task_id);
+CREATE INDEX idx_task_comments_created ON task_comments(task_id, created_at);
+
+COMMENT ON TABLE task_comments IS 'タスクコメント【課題2】。作業履歴や引き継ぎ事項を記録';
+COMMENT ON COLUMN task_comments.commented_by IS 'コメント投稿者名（将来的にユーザーテーブルの外部キーに変更可能）';
+COMMENT ON COLUMN task_comments.deleted_at IS 'ソフトデリート用タイムスタンプ。NULLでない場合は削除済み';
+
+-- ============================================================================
+-- updated_at 自動更新トリガー
+-- ============================================================================
+-- 各テーブルの updated_at を UPDATE 時に自動更新
+
+CREATE OR REPLACE FUNCTION update_updated_at_column()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = CURRENT_TIMESTAMP;
+    RETURN NEW;
+END;
+$$ language 'plpgsql';
+
+CREATE TRIGGER update_tenants_updated_at
+    BEFORE UPDATE ON tenants
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_equipments_updated_at
+    BEFORE UPDATE ON equipments
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_parts_updated_at
+    BEFORE UPDATE ON parts
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_tasks_updated_at
+    BEFORE UPDATE ON tasks
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_custom_field_definitions_updated_at
+    BEFORE UPDATE ON custom_field_definitions
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_custom_field_values_updated_at
+    BEFORE UPDATE ON custom_field_values
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_task_comments_updated_at
+    BEFORE UPDATE ON task_comments
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+-- ============================================================================
 -- M2X: グローバル基準高度水準 DB設計リファクタリング
 -- ============================================================================
 --
@@ -1083,5 +1420,716 @@ BEGIN
     RAISE NOTICE '- 楽観的ロック: 適用済';
     RAISE NOTICE '- 追加インデックス: 作成済';
     RAISE NOTICE '- バリデーショントリガー: 作成済';
+END;
+$$;
+-- ============================================================================
+-- M2X: セキュリティ強化マイグレーション
+-- ============================================================================
+--
+-- 【概要】
+-- グローバル基準のセキュリティ要件に対応するためのDB拡張
+--
+-- 【実装項目】
+-- 1. セキュリティイベントログテーブル
+-- 2. APIキー管理テーブル
+-- 3. セッション管理テーブル
+-- 4. 失敗したログイン試行の追跡
+-- 5. IPブロックリスト
+-- 6. パスワードポリシー設定
+--
+-- 【準拠規格】
+-- - OWASP Top 10
+-- - NIST 800-63B (Digital Identity Guidelines)
+-- - ISO 27001
+--
+-- ============================================================================
+
+-- ============================================================================
+-- SECTION 1: セキュリティイベントタイプ
+-- ============================================================================
+
+CREATE TYPE security_event_type AS ENUM (
+    -- 認証関連
+    'login_success',
+    'login_failure',
+    'logout',
+    'password_change',
+    'password_reset_request',
+    'password_reset_complete',
+    'mfa_enabled',
+    'mfa_disabled',
+    'mfa_challenge_success',
+    'mfa_challenge_failure',
+
+    -- セッション関連
+    'session_created',
+    'session_expired',
+    'session_revoked',
+    'session_hijack_attempt',
+
+    -- アカウント関連
+    'account_created',
+    'account_locked',
+    'account_unlocked',
+    'account_deleted',
+    'role_changed',
+    'permission_denied',
+
+    -- API関連
+    'api_key_created',
+    'api_key_revoked',
+    'api_key_used',
+    'rate_limit_exceeded',
+
+    -- データアクセス関連
+    'sensitive_data_accessed',
+    'bulk_data_export',
+    'cross_tenant_attempt',
+
+    -- 脅威検知
+    'suspicious_activity',
+    'brute_force_detected',
+    'sql_injection_attempt',
+    'xss_attempt',
+    'csrf_violation'
+);
+
+COMMENT ON TYPE security_event_type IS 'セキュリティイベントの種類';
+
+-- ============================================================================
+-- SECTION 2: セキュリティイベントログテーブル
+-- ============================================================================
+-- 全てのセキュリティ関連イベントを記録する不変ログ
+
+CREATE TABLE security_events (
+    id BIGSERIAL PRIMARY KEY,
+
+    -- イベント情報
+    event_type security_event_type NOT NULL,
+    event_time TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+
+    -- 対象情報
+    tenant_id UUID,
+    user_id UUID,
+    target_resource VARCHAR(255),  -- 例: "tasks", "users", etc.
+    target_id UUID,
+
+    -- リクエスト情報
+    ip_address INET,
+    user_agent TEXT,
+    request_method VARCHAR(10),
+    request_path TEXT,
+    request_id UUID,
+
+    -- イベント詳細
+    details JSONB DEFAULT '{}',
+    severity VARCHAR(20) DEFAULT 'info',  -- 'debug', 'info', 'warning', 'error', 'critical'
+
+    -- 地理情報（オプション）
+    geo_country VARCHAR(2),
+    geo_city VARCHAR(100),
+
+    -- パーティショニング用（トリガーで自動設定）
+    year_month VARCHAR(7)
+);
+
+-- year_month自動設定トリガー
+CREATE OR REPLACE FUNCTION set_security_event_year_month()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.year_month := TO_CHAR(NEW.event_time, 'YYYY-MM');
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_security_events_year_month
+    BEFORE INSERT ON security_events
+    FOR EACH ROW EXECUTE FUNCTION set_security_event_year_month();
+
+-- インデックス
+CREATE INDEX idx_security_events_type ON security_events(event_type, event_time DESC);
+CREATE INDEX idx_security_events_tenant ON security_events(tenant_id, event_time DESC);
+CREATE INDEX idx_security_events_user ON security_events(user_id, event_time DESC);
+CREATE INDEX idx_security_events_ip ON security_events(ip_address, event_time DESC);
+CREATE INDEX idx_security_events_severity ON security_events(severity, event_time DESC) WHERE severity IN ('warning', 'error', 'critical');
+CREATE INDEX idx_security_events_time ON security_events USING BRIN (event_time);
+CREATE INDEX idx_security_events_year_month ON security_events(year_month);
+
+-- セキュリティイベントは削除・変更不可
+CREATE OR REPLACE FUNCTION prevent_security_event_modification()
+RETURNS TRIGGER AS $$
+BEGIN
+    RAISE EXCEPTION 'Security events cannot be modified or deleted (compliance requirement)';
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER prevent_security_event_update
+    BEFORE UPDATE OR DELETE ON security_events
+    FOR EACH ROW EXECUTE FUNCTION prevent_security_event_modification();
+
+COMMENT ON TABLE security_events IS 'セキュリティイベントログ（不変、コンプライアンス用）';
+
+-- ============================================================================
+-- SECTION 3: APIキー管理テーブル
+-- ============================================================================
+
+CREATE TABLE api_keys (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+
+    -- キー情報
+    key_prefix VARCHAR(8) NOT NULL,  -- 表示用プレフィックス（例: "m2x_live"）
+    key_hash VARCHAR(255) NOT NULL,  -- SHA-256ハッシュ
+    name VARCHAR(255) NOT NULL,
+    description TEXT,
+
+    -- スコープと権限
+    scopes TEXT[] DEFAULT ARRAY['read'],  -- 'read', 'write', 'admin'
+    allowed_ips INET[],  -- IPホワイトリスト（空=全て許可）
+
+    -- 使用状況
+    last_used_at TIMESTAMP WITH TIME ZONE,
+    last_used_ip INET,
+    usage_count BIGINT DEFAULT 0,
+
+    -- 有効期限
+    expires_at TIMESTAMP WITH TIME ZONE,
+    is_active BOOLEAN DEFAULT TRUE,
+
+    -- 監査
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    created_by UUID,
+    revoked_at TIMESTAMP WITH TIME ZONE,
+    revoked_by UUID,
+    revoke_reason TEXT,
+
+    -- 制約
+    CONSTRAINT chk_key_prefix_format CHECK (key_prefix ~ '^[a-z0-9_]+$')
+);
+
+-- インデックス
+CREATE INDEX idx_api_keys_tenant ON api_keys(tenant_id);
+CREATE INDEX idx_api_keys_user ON api_keys(user_id);
+CREATE INDEX idx_api_keys_prefix ON api_keys(key_prefix);
+CREATE INDEX idx_api_keys_active ON api_keys(tenant_id, is_active) WHERE is_active = TRUE;
+
+-- RLS
+ALTER TABLE api_keys ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY api_keys_tenant_isolation ON api_keys
+    FOR ALL
+    USING (tenant_id = current_tenant_id())
+    WITH CHECK (tenant_id = current_tenant_id());
+
+COMMENT ON TABLE api_keys IS 'APIキー管理テーブル';
+COMMENT ON COLUMN api_keys.key_hash IS 'APIキーのSHA-256ハッシュ（平文は保存しない）';
+COMMENT ON COLUMN api_keys.scopes IS '許可されたスコープ配列';
+
+-- ============================================================================
+-- SECTION 4: セッション管理テーブル
+-- ============================================================================
+
+CREATE TABLE user_sessions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+
+    -- セッション情報
+    session_token_hash VARCHAR(255) NOT NULL,  -- SHA-256ハッシュ
+    refresh_token_hash VARCHAR(255),
+
+    -- デバイス情報
+    device_fingerprint VARCHAR(255),
+    user_agent TEXT,
+    ip_address INET,
+
+    -- 有効期限
+    expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    refresh_expires_at TIMESTAMP WITH TIME ZONE,
+
+    -- ステータス
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    last_activity_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+
+    -- 無効化情報
+    revoked_at TIMESTAMP WITH TIME ZONE,
+    revoke_reason VARCHAR(50),  -- 'logout', 'expired', 'security', 'admin'
+
+    -- インデックス最適化
+    CONSTRAINT uq_session_token UNIQUE (session_token_hash)
+);
+
+-- インデックス
+CREATE INDEX idx_user_sessions_user ON user_sessions(user_id, is_active) WHERE is_active = TRUE;
+CREATE INDEX idx_user_sessions_tenant ON user_sessions(tenant_id);
+CREATE INDEX idx_user_sessions_expires ON user_sessions(expires_at) WHERE is_active = TRUE;
+CREATE INDEX idx_user_sessions_token ON user_sessions(session_token_hash) WHERE is_active = TRUE;
+
+-- RLS
+ALTER TABLE user_sessions ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY user_sessions_tenant_isolation ON user_sessions
+    FOR ALL
+    USING (tenant_id = current_tenant_id())
+    WITH CHECK (tenant_id = current_tenant_id());
+
+-- 期限切れセッションの自動無効化トリガー
+CREATE OR REPLACE FUNCTION invalidate_expired_sessions()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF NEW.is_active = TRUE AND NEW.expires_at < CURRENT_TIMESTAMP THEN
+        NEW.is_active := FALSE;
+        NEW.revoked_at := CURRENT_TIMESTAMP;
+        NEW.revoke_reason := 'expired';
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_invalidate_expired_sessions
+    BEFORE UPDATE ON user_sessions
+    FOR EACH ROW EXECUTE FUNCTION invalidate_expired_sessions();
+
+COMMENT ON TABLE user_sessions IS 'ユーザーセッション管理テーブル';
+
+-- ============================================================================
+-- SECTION 5: 失敗したログイン試行追跡
+-- ============================================================================
+
+CREATE TABLE failed_login_attempts (
+    id BIGSERIAL PRIMARY KEY,
+    tenant_id UUID,
+    email VARCHAR(255),
+    ip_address INET NOT NULL,
+    user_agent TEXT,
+    attempted_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    failure_reason VARCHAR(50),  -- 'invalid_password', 'account_locked', 'account_not_found', 'mfa_failed'
+    request_id UUID
+);
+
+-- インデックス
+CREATE INDEX idx_failed_logins_ip ON failed_login_attempts(ip_address, attempted_at DESC);
+CREATE INDEX idx_failed_logins_email ON failed_login_attempts(email, attempted_at DESC);
+CREATE INDEX idx_failed_logins_time ON failed_login_attempts USING BRIN (attempted_at);
+
+-- 古いレコードを自動削除（30日以上前）
+CREATE OR REPLACE FUNCTION cleanup_old_failed_logins()
+RETURNS INTEGER AS $$
+DECLARE
+    deleted_count INTEGER;
+BEGIN
+    DELETE FROM failed_login_attempts
+    WHERE attempted_at < CURRENT_TIMESTAMP - INTERVAL '30 days';
+
+    GET DIAGNOSTICS deleted_count = ROW_COUNT;
+    RETURN deleted_count;
+END;
+$$ LANGUAGE plpgsql;
+
+COMMENT ON TABLE failed_login_attempts IS '失敗したログイン試行の追跡（ブルートフォース検出用）';
+
+-- ============================================================================
+-- SECTION 6: IPブロックリスト
+-- ============================================================================
+
+CREATE TABLE ip_blocklist (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    ip_address INET NOT NULL,
+    ip_range CIDR,  -- IPレンジでのブロック
+
+    -- ブロック理由
+    reason VARCHAR(50) NOT NULL,  -- 'brute_force', 'suspicious_activity', 'manual', 'abuse'
+    details TEXT,
+
+    -- 有効期限
+    blocked_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    expires_at TIMESTAMP WITH TIME ZONE,  -- NULLは永久ブロック
+    is_active BOOLEAN DEFAULT TRUE,
+
+    -- 監査
+    blocked_by UUID,
+    unblocked_at TIMESTAMP WITH TIME ZONE,
+    unblocked_by UUID,
+
+    -- 制約
+    CONSTRAINT chk_ip_or_range CHECK (ip_address IS NOT NULL OR ip_range IS NOT NULL)
+);
+
+-- インデックス
+CREATE INDEX idx_ip_blocklist_address ON ip_blocklist(ip_address) WHERE is_active = TRUE;
+CREATE INDEX idx_ip_blocklist_range ON ip_blocklist(ip_range) WHERE is_active = TRUE;
+CREATE INDEX idx_ip_blocklist_expires ON ip_blocklist(expires_at) WHERE is_active = TRUE AND expires_at IS NOT NULL;
+
+-- IPがブロックされているかチェックする関数
+CREATE OR REPLACE FUNCTION is_ip_blocked(check_ip INET)
+RETURNS BOOLEAN AS $$
+BEGIN
+    RETURN EXISTS (
+        SELECT 1 FROM ip_blocklist
+        WHERE is_active = TRUE
+          AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
+          AND (
+              ip_address = check_ip
+              OR (ip_range IS NOT NULL AND check_ip << ip_range)
+          )
+    );
+END;
+$$ LANGUAGE plpgsql STABLE;
+
+COMMENT ON TABLE ip_blocklist IS 'IPブロックリスト';
+COMMENT ON FUNCTION is_ip_blocked(INET) IS '指定IPがブロックされているかチェック';
+
+-- ============================================================================
+-- SECTION 7: パスワードポリシー設定
+-- ============================================================================
+
+CREATE TABLE password_policies (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id UUID REFERENCES tenants(id) ON DELETE CASCADE,  -- NULLはグローバルデフォルト
+
+    -- 長さ要件
+    min_length INTEGER NOT NULL DEFAULT 12,
+    max_length INTEGER NOT NULL DEFAULT 128,
+
+    -- 複雑性要件
+    require_uppercase BOOLEAN DEFAULT TRUE,
+    require_lowercase BOOLEAN DEFAULT TRUE,
+    require_numbers BOOLEAN DEFAULT TRUE,
+    require_special_chars BOOLEAN DEFAULT TRUE,
+    special_chars_allowed VARCHAR(100) DEFAULT '!@#$%^&*()_+-=[]{}|;:,.<>?',
+
+    -- パスワード履歴
+    password_history_count INTEGER DEFAULT 5,  -- 過去N個のパスワードは再利用不可
+
+    -- 有効期限
+    max_age_days INTEGER DEFAULT 90,  -- 0は無期限
+    warning_days_before_expiry INTEGER DEFAULT 14,
+
+    -- ロックアウト
+    max_failed_attempts INTEGER DEFAULT 5,
+    lockout_duration_minutes INTEGER DEFAULT 30,
+
+    -- MFA要件
+    require_mfa BOOLEAN DEFAULT FALSE,
+    mfa_grace_period_days INTEGER DEFAULT 7,
+
+    -- 監査
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+
+    -- 制約
+    CONSTRAINT uq_password_policy_tenant UNIQUE (tenant_id),
+    CONSTRAINT chk_min_length CHECK (min_length >= 8),
+    CONSTRAINT chk_max_length CHECK (max_length <= 256 AND max_length >= min_length),
+    CONSTRAINT chk_history_count CHECK (password_history_count >= 0 AND password_history_count <= 24),
+    CONSTRAINT chk_max_age CHECK (max_age_days >= 0),
+    CONSTRAINT chk_lockout CHECK (max_failed_attempts >= 1 AND lockout_duration_minutes >= 1)
+);
+
+-- デフォルトポリシーを挿入
+INSERT INTO password_policies (tenant_id, min_length, require_mfa)
+VALUES (NULL, 12, FALSE);
+
+-- RLS
+ALTER TABLE password_policies ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY password_policies_tenant_isolation ON password_policies
+    FOR ALL
+    USING (tenant_id IS NULL OR tenant_id = current_tenant_id())
+    WITH CHECK (tenant_id = current_tenant_id());
+
+COMMENT ON TABLE password_policies IS 'テナント別パスワードポリシー設定';
+
+-- ============================================================================
+-- SECTION 8: パスワード履歴テーブル
+-- ============================================================================
+
+CREATE TABLE password_history (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    password_hash VARCHAR(255) NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- インデックス
+CREATE INDEX idx_password_history_user ON password_history(user_id, created_at DESC);
+
+COMMENT ON TABLE password_history IS 'パスワード履歴（再利用防止用）';
+
+-- ============================================================================
+-- SECTION 9: レート制限設定テーブル
+-- ============================================================================
+
+CREATE TABLE rate_limit_configs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id UUID REFERENCES tenants(id) ON DELETE CASCADE,  -- NULLはグローバル
+
+    -- エンドポイント設定
+    endpoint_pattern VARCHAR(255) NOT NULL,  -- 例: '/api/tenants/*/tasks'
+    http_method VARCHAR(10),  -- NULL = 全メソッド
+
+    -- 制限設定
+    requests_per_minute INTEGER DEFAULT 60,
+    requests_per_hour INTEGER DEFAULT 1000,
+    requests_per_day INTEGER DEFAULT 10000,
+
+    -- バースト許容
+    burst_size INTEGER DEFAULT 10,
+
+    -- 有効フラグ
+    is_active BOOLEAN DEFAULT TRUE,
+
+    -- 監査
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+
+    -- 制約
+    CONSTRAINT uq_rate_limit_endpoint UNIQUE (tenant_id, endpoint_pattern, http_method)
+);
+
+-- デフォルトのグローバルレート制限を挿入
+INSERT INTO rate_limit_configs (tenant_id, endpoint_pattern, requests_per_minute, requests_per_hour) VALUES
+    (NULL, '/api/*', 60, 1000),
+    (NULL, '/api/*/tasks', 30, 500),
+    (NULL, '/health', 120, 3600);
+
+COMMENT ON TABLE rate_limit_configs IS 'APIレート制限設定';
+
+-- ============================================================================
+-- SECTION 10: usersテーブルのセキュリティ拡張
+-- ============================================================================
+
+-- パスワード関連フィールドの追加（既存の場合はスキップ）
+DO $$
+BEGIN
+    -- パスワード有効期限
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'password_expires_at') THEN
+        ALTER TABLE users ADD COLUMN password_expires_at TIMESTAMP WITH TIME ZONE;
+    END IF;
+
+    -- MFAシークレット
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'mfa_secret') THEN
+        ALTER TABLE users ADD COLUMN mfa_secret VARCHAR(255);
+    END IF;
+
+    -- MFA有効フラグ
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'mfa_enabled') THEN
+        ALTER TABLE users ADD COLUMN mfa_enabled BOOLEAN DEFAULT FALSE;
+    END IF;
+
+    -- MFAバックアップコード
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'mfa_backup_codes') THEN
+        ALTER TABLE users ADD COLUMN mfa_backup_codes TEXT[];
+    END IF;
+
+    -- メール確認済みフラグ
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'email_verified') THEN
+        ALTER TABLE users ADD COLUMN email_verified BOOLEAN DEFAULT FALSE;
+    END IF;
+
+    -- メール確認トークン
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'email_verification_token') THEN
+        ALTER TABLE users ADD COLUMN email_verification_token VARCHAR(255);
+    END IF;
+
+    -- パスワードリセットトークン
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'password_reset_token') THEN
+        ALTER TABLE users ADD COLUMN password_reset_token VARCHAR(255);
+    END IF;
+
+    -- パスワードリセットトークン有効期限
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'password_reset_expires') THEN
+        ALTER TABLE users ADD COLUMN password_reset_expires TIMESTAMP WITH TIME ZONE;
+    END IF;
+
+    -- 許可されたIPアドレス
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'allowed_ips') THEN
+        ALTER TABLE users ADD COLUMN allowed_ips INET[];
+    END IF;
+END;
+$$;
+
+-- ============================================================================
+-- SECTION 11: セキュリティヘルパー関数
+-- ============================================================================
+
+-- ブルートフォース検出関数
+CREATE OR REPLACE FUNCTION check_brute_force(
+    p_ip_address INET,
+    p_email VARCHAR(255) DEFAULT NULL,
+    p_window_minutes INTEGER DEFAULT 15,
+    p_max_attempts INTEGER DEFAULT 5
+) RETURNS BOOLEAN AS $$
+DECLARE
+    attempt_count INTEGER;
+BEGIN
+    SELECT COUNT(*) INTO attempt_count
+    FROM failed_login_attempts
+    WHERE ip_address = p_ip_address
+      AND attempted_at > CURRENT_TIMESTAMP - (p_window_minutes || ' minutes')::INTERVAL;
+
+    IF attempt_count >= p_max_attempts THEN
+        RETURN TRUE;  -- ブルートフォース検出
+    END IF;
+
+    -- メールベースのチェック
+    IF p_email IS NOT NULL THEN
+        SELECT COUNT(*) INTO attempt_count
+        FROM failed_login_attempts
+        WHERE email = p_email
+          AND attempted_at > CURRENT_TIMESTAMP - (p_window_minutes || ' minutes')::INTERVAL;
+
+        IF attempt_count >= p_max_attempts THEN
+            RETURN TRUE;
+        END IF;
+    END IF;
+
+    RETURN FALSE;
+END;
+$$ LANGUAGE plpgsql STABLE;
+
+COMMENT ON FUNCTION check_brute_force(INET, VARCHAR, INTEGER, INTEGER) IS 'ブルートフォース攻撃を検出';
+
+-- セキュリティイベント記録関数
+CREATE OR REPLACE FUNCTION log_security_event(
+    p_event_type security_event_type,
+    p_tenant_id UUID DEFAULT NULL,
+    p_user_id UUID DEFAULT NULL,
+    p_ip_address INET DEFAULT NULL,
+    p_details JSONB DEFAULT '{}',
+    p_severity VARCHAR(20) DEFAULT 'info'
+) RETURNS BIGINT AS $$
+DECLARE
+    event_id BIGINT;
+BEGIN
+    INSERT INTO security_events (
+        event_type, tenant_id, user_id, ip_address, details, severity
+    ) VALUES (
+        p_event_type, p_tenant_id, p_user_id, p_ip_address, p_details, p_severity
+    )
+    RETURNING id INTO event_id;
+
+    RETURN event_id;
+END;
+$$ LANGUAGE plpgsql;
+
+COMMENT ON FUNCTION log_security_event(security_event_type, UUID, UUID, INET, JSONB, VARCHAR) IS 'セキュリティイベントを記録';
+
+-- アクティブセッション数取得
+CREATE OR REPLACE FUNCTION get_active_session_count(p_user_id UUID)
+RETURNS INTEGER AS $$
+BEGIN
+    RETURN (
+        SELECT COUNT(*)
+        FROM user_sessions
+        WHERE user_id = p_user_id
+          AND is_active = TRUE
+          AND expires_at > CURRENT_TIMESTAMP
+    );
+END;
+$$ LANGUAGE plpgsql STABLE;
+
+-- 古いセッションを無効化
+CREATE OR REPLACE FUNCTION revoke_user_sessions(
+    p_user_id UUID,
+    p_reason VARCHAR(50) DEFAULT 'security',
+    p_except_session_id UUID DEFAULT NULL
+) RETURNS INTEGER AS $$
+DECLARE
+    revoked_count INTEGER;
+BEGIN
+    UPDATE user_sessions
+    SET is_active = FALSE,
+        revoked_at = CURRENT_TIMESTAMP,
+        revoke_reason = p_reason
+    WHERE user_id = p_user_id
+      AND is_active = TRUE
+      AND (p_except_session_id IS NULL OR id != p_except_session_id);
+
+    GET DIAGNOSTICS revoked_count = ROW_COUNT;
+    RETURN revoked_count;
+END;
+$$ LANGUAGE plpgsql;
+
+COMMENT ON FUNCTION revoke_user_sessions(UUID, VARCHAR, UUID) IS 'ユーザーの全セッションを無効化';
+
+-- ============================================================================
+-- SECTION 12: セキュリティビュー
+-- ============================================================================
+
+-- 最近のセキュリティイベント
+CREATE OR REPLACE VIEW v_recent_security_events AS
+SELECT
+    se.id,
+    se.event_type,
+    se.event_time,
+    se.tenant_id,
+    t.name AS tenant_name,
+    se.user_id,
+    u.display_name AS user_name,
+    se.ip_address,
+    se.severity,
+    se.details
+FROM security_events se
+LEFT JOIN tenants t ON se.tenant_id = t.id
+LEFT JOIN users u ON se.user_id = u.id
+WHERE se.event_time > CURRENT_TIMESTAMP - INTERVAL '24 hours'
+ORDER BY se.event_time DESC;
+
+COMMENT ON VIEW v_recent_security_events IS '過去24時間のセキュリティイベント';
+
+-- 失敗したログイン試行のサマリー
+CREATE OR REPLACE VIEW v_failed_login_summary AS
+SELECT
+    ip_address,
+    email,
+    COUNT(*) AS attempt_count,
+    MIN(attempted_at) AS first_attempt,
+    MAX(attempted_at) AS last_attempt,
+    ARRAY_AGG(DISTINCT failure_reason) AS failure_reasons
+FROM failed_login_attempts
+WHERE attempted_at > CURRENT_TIMESTAMP - INTERVAL '24 hours'
+GROUP BY ip_address, email
+HAVING COUNT(*) >= 3
+ORDER BY attempt_count DESC;
+
+COMMENT ON VIEW v_failed_login_summary IS '失敗したログイン試行のサマリー（3回以上）';
+
+-- アクティブなブロック一覧
+CREATE OR REPLACE VIEW v_active_blocks AS
+SELECT
+    id,
+    ip_address,
+    ip_range,
+    reason,
+    blocked_at,
+    expires_at,
+    CASE
+        WHEN expires_at IS NULL THEN 'permanent'
+        ELSE 'temporary'
+    END AS block_type
+FROM ip_blocklist
+WHERE is_active = TRUE
+  AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
+ORDER BY blocked_at DESC;
+
+COMMENT ON VIEW v_active_blocks IS '現在アクティブなIPブロック';
+
+-- ============================================================================
+-- 完了メッセージ
+-- ============================================================================
+
+DO $$
+BEGIN
+    RAISE NOTICE 'セキュリティ強化マイグレーション完了';
+    RAISE NOTICE '- セキュリティイベントログ: 作成済';
+    RAISE NOTICE '- APIキー管理: 作成済';
+    RAISE NOTICE '- セッション管理: 作成済';
+    RAISE NOTICE '- 失敗ログイン追跡: 作成済';
+    RAISE NOTICE '- IPブロックリスト: 作成済';
+    RAISE NOTICE '- パスワードポリシー: 作成済';
+    RAISE NOTICE '- セキュリティヘルパー関数: 作成済';
 END;
 $$;
