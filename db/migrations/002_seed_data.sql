@@ -3,13 +3,39 @@
 -- ============================================================================
 -- 画面イメージに基づいたサンプルデータを投入
 -- マルチテナント環境での動作確認用
+--
+-- ============================================================================
+-- 【開発者向け情報】
+-- ============================================================================
+--
+-- ■ テストログイン用パスワード（全ユーザー共通）
+--   パスワード: password123
+--
+--   ログイン可能なメールアドレス例:
+--   - admin@tanaka-mfg.example.com (管理者)
+--   - tanaka.k@tanaka-mfg.example.com (オペレーター)
+--   - manager@tanaka-mfg.example.com (マネージャー)
+--
+-- ■ 冪等性
+--   このスクリプトは何度実行しても安全です（ON CONFLICT DO NOTHING）
+--
+-- ■ 動的日時
+--   すべての日時はスクリプト実行時を基準とした相対日時で設定されます
+--   ダッシュボードには常に「現在進行形」のデータが表示されます
+--
+-- ============================================================================
+
+-- bcrypt ハッシュ（cost=12, password='password123'）
+-- Pythonで生成: bcrypt.hashpw(b'password123', bcrypt.gensalt(12))
+\set TEST_PASSWORD_HASH '$2b$12$qMeVXGKmkpB3eUZkqH2n4OohpXgqK6JvIiZNL5IvNa/b/OEI1fprG'
 
 -- ============================================================================
 -- テナント
 -- ============================================================================
 INSERT INTO tenants (id, name) VALUES
     ('11111111-1111-1111-1111-111111111111', 'Tanaka Manufacturing Co., Ltd.'),
-    ('22222222-2222-2222-2222-222222222222', 'Yamamoto Electronics Factory');
+    ('22222222-2222-2222-2222-222222222222', 'Yamamoto Electronics Factory')
+ON CONFLICT (id) DO NOTHING;
 
 -- ============================================================================
 -- 設備（階層構造の例）
@@ -23,12 +49,14 @@ INSERT INTO equipments (id, tenant_id, parent_equipment_id, name, manufacturer, 
     -- 子設備（Line A の機械）
     ('aaaa0001-0001-0001-0001-000000000011', '11111111-1111-1111-1111-111111111111', 'aaaa0001-0001-0001-0001-000000000001', 'Conveyor Belt A-1', 'Conveyor Tech Inc.', 'Main conveyor for Line A'),
     ('aaaa0001-0001-0001-0001-000000000012', '11111111-1111-1111-1111-111111111111', 'aaaa0001-0001-0001-0001-000000000001', 'Robot Arm A-1', 'RoboArm Corp.', 'Automated assembly robot'),
-    ('aaaa0001-0001-0001-0001-000000000013', '11111111-1111-1111-1111-111111111111', 'aaaa0001-0001-0001-0001-000000000001', 'Quality Scanner A-1', 'Vision Systems Ltd.', 'Visual inspection system');
+    ('aaaa0001-0001-0001-0001-000000000013', '11111111-1111-1111-1111-111111111111', 'aaaa0001-0001-0001-0001-000000000001', 'Quality Scanner A-1', 'Vision Systems Ltd.', 'Visual inspection system')
+ON CONFLICT (id) DO NOTHING;
 
 -- Yamamoto Electronics の設備
 INSERT INTO equipments (id, tenant_id, parent_equipment_id, name, manufacturer, description) VALUES
     ('bbbb0001-0001-0001-0001-000000000001', '22222222-2222-2222-2222-222222222222', NULL, 'SMT Line 1', 'SMT Solutions', 'Surface Mount Technology line'),
-    ('bbbb0001-0001-0001-0001-000000000002', '22222222-2222-2222-2222-222222222222', NULL, 'Testing Station', 'TestEquip Co.', 'Quality assurance testing');
+    ('bbbb0001-0001-0001-0001-000000000002', '22222222-2222-2222-2222-222222222222', NULL, 'Testing Station', 'TestEquip Co.', 'Quality assurance testing')
+ON CONFLICT (id) DO NOTHING;
 
 -- ============================================================================
 -- 部品
@@ -39,12 +67,14 @@ INSERT INTO parts (id, tenant_id, name, part_number, location, description, stoc
     ('cccc0001-0001-0001-0001-000000000002', '11111111-1111-1111-1111-111111111111', 'Drive Motor 500W', 'DM-500W-002', 'Warehouse A', 'Industrial grade motor', 8, 3),
     ('cccc0001-0001-0001-0001-000000000003', '11111111-1111-1111-1111-111111111111', 'Proximity Sensor', 'PS-IR-003', 'Building 2', 'Infrared proximity sensor', 25, 10),
     ('cccc0001-0001-0001-0001-000000000004', '11111111-1111-1111-1111-111111111111', 'Robot Gripper Unit', 'RG-A1-004', 'Building 2', 'Pneumatic gripper assembly', 4, 2),
-    ('cccc0001-0001-0001-0001-000000000005', '11111111-1111-1111-1111-111111111111', 'Control Board v2', 'CB-V2-005', 'Electronics Room', 'PLC control board', 6, 3);
+    ('cccc0001-0001-0001-0001-000000000005', '11111111-1111-1111-1111-111111111111', 'Control Board v2', 'CB-V2-005', 'Electronics Room', 'PLC control board', 6, 3)
+ON CONFLICT (id) DO NOTHING;
 
 -- Yamamoto Electronics の部品
 INSERT INTO parts (id, tenant_id, name, part_number, location, description, stock_quantity, reorder_point) VALUES
     ('dddd0001-0001-0001-0001-000000000001', '22222222-2222-2222-2222-222222222222', 'Solder Paste (500g)', 'SP-500-001', 'Cold Storage', 'Lead-free solder paste', 20, 8),
-    ('dddd0001-0001-0001-0001-000000000002', '22222222-2222-2222-2222-222222222222', 'PCB Holder Jig', 'PH-STD-002', 'Tool Room', 'Standard PCB holding fixture', 12, 4);
+    ('dddd0001-0001-0001-0001-000000000002', '22222222-2222-2222-2222-222222222222', 'PCB Holder Jig', 'PH-STD-002', 'Tool Room', 'Standard PCB holding fixture', 12, 4)
+ON CONFLICT (id) DO NOTHING;
 
 -- ============================================================================
 -- 設備・部品関連
@@ -56,7 +86,8 @@ INSERT INTO equipment_parts (id, tenant_id, equipment_id, part_id) VALUES
     ('eeee0001-0001-0001-0001-000000000003', '11111111-1111-1111-1111-111111111111', 'aaaa0001-0001-0001-0001-000000000011', 'cccc0001-0001-0001-0001-000000000003'),
     -- Robot Arm A-1 に必要な部品
     ('eeee0001-0001-0001-0001-000000000004', '11111111-1111-1111-1111-111111111111', 'aaaa0001-0001-0001-0001-000000000012', 'cccc0001-0001-0001-0001-000000000004'),
-    ('eeee0001-0001-0001-0001-000000000005', '11111111-1111-1111-1111-111111111111', 'aaaa0001-0001-0001-0001-000000000012', 'cccc0001-0001-0001-0001-000000000005');
+    ('eeee0001-0001-0001-0001-000000000005', '11111111-1111-1111-1111-111111111111', 'aaaa0001-0001-0001-0001-000000000012', 'cccc0001-0001-0001-0001-000000000005')
+ON CONFLICT (id) DO NOTHING;
 
 -- ============================================================================
 -- カスタムフィールド定義（テナント独自入力項目）
@@ -73,20 +104,27 @@ INSERT INTO custom_field_definitions (id, tenant_id, field_name, field_type, is_
 
     -- Yamamoto Electronics のカスタムフィールド（異なるテナントは異なる項目を持てる）
     ('ffff0002-0001-0001-0001-000000000001', '22222222-2222-2222-2222-222222222222', 'Defect type', 'select', TRUE, 1, '["Solder bridge", "Missing component", "Wrong polarity", "Cold joint", "Other"]'),
-    ('ffff0002-0001-0001-0001-000000000002', '22222222-2222-2222-2222-222222222222', 'Lot number', 'text', TRUE, 2, NULL);
+    ('ffff0002-0001-0001-0001-000000000002', '22222222-2222-2222-2222-222222222222', 'Lot number', 'text', TRUE, 2, NULL)
+ON CONFLICT (id) DO NOTHING;
 
 -- ============================================================================
--- タスク
+-- タスク（動的日時使用）
 -- ============================================================================
+-- 日時はスクリプト実行時を基準とした相対日時で設定
 INSERT INTO tasks (id, tenant_id, equipment_id, title, description, status, due_date, assigned_to) VALUES
     -- Tanaka Manufacturing のタスク
-    ('10000001-0001-0001-0001-000000000001', '11111111-1111-1111-1111-111111111111', 'aaaa0001-0001-0001-0001-000000000011', 'Replace worn conveyor belt', 'Belt showing signs of wear on section 3. Replace before failure.', 'todo', '2024-02-15', 'Suzuki T.'),
-    ('10000001-0001-0001-0001-000000000002', '11111111-1111-1111-1111-111111111111', 'aaaa0001-0001-0001-0001-000000000012', 'Calibrate robot arm sensors', 'Monthly calibration check required.', 'in_progress', '2024-02-10', 'Yamada H.'),
-    ('10000001-0001-0001-0001-000000000003', '11111111-1111-1111-1111-111111111111', 'aaaa0001-0001-0001-0001-000000000013', 'Update scanner firmware', 'New firmware v2.3 available with improved detection.', 'done', '2024-02-01', 'Sato K.'),
-    ('10000001-0001-0001-0001-000000000004', '11111111-1111-1111-1111-111111111111', 'aaaa0001-0001-0001-0001-000000000001', 'Emergency: Line A motor failure', 'Drive motor stopped unexpectedly. Production halted.', 'in_progress', '2024-02-08', 'Tanaka K.'),
+    -- 未着手タスク: 7日後が期限
+    ('10000001-0001-0001-0001-000000000001', '11111111-1111-1111-1111-111111111111', 'aaaa0001-0001-0001-0001-000000000011', 'Replace worn conveyor belt', 'Belt showing signs of wear on section 3. Replace before failure.', 'todo', CURRENT_DATE + INTERVAL '7 days', 'Suzuki T.'),
+    -- 進行中タスク: 2日後が期限
+    ('10000001-0001-0001-0001-000000000002', '11111111-1111-1111-1111-111111111111', 'aaaa0001-0001-0001-0001-000000000012', 'Calibrate robot arm sensors', 'Monthly calibration check required.', 'in_progress', CURRENT_DATE + INTERVAL '2 days', 'Yamada H.'),
+    -- 完了タスク: 7日前が期限だった
+    ('10000001-0001-0001-0001-000000000003', '11111111-1111-1111-1111-111111111111', 'aaaa0001-0001-0001-0001-000000000013', 'Update scanner firmware', 'New firmware v2.3 available with improved detection.', 'done', CURRENT_DATE - INTERVAL '7 days', 'Sato K.'),
+    -- 緊急進行中タスク: 今日が期限
+    ('10000001-0001-0001-0001-000000000004', '11111111-1111-1111-1111-111111111111', 'aaaa0001-0001-0001-0001-000000000001', 'Emergency: Line A motor failure', 'Drive motor stopped unexpectedly. Production halted.', 'in_progress', CURRENT_DATE, 'Tanaka K.'),
 
-    -- Yamamoto Electronics のタスク
-    ('10000002-0001-0001-0001-000000000001', '22222222-2222-2222-2222-222222222222', 'bbbb0001-0001-0001-0001-000000000001', 'Clean solder paste stencil', 'Weekly cleaning schedule.', 'todo', '2024-02-12', 'John Smith');
+    -- Yamamoto Electronics のタスク: 4日後が期限
+    ('10000002-0001-0001-0001-000000000001', '22222222-2222-2222-2222-222222222222', 'bbbb0001-0001-0001-0001-000000000001', 'Clean solder paste stencil', 'Weekly cleaning schedule.', 'todo', CURRENT_DATE + INTERVAL '4 days', 'John Smith')
+ON CONFLICT (id) DO NOTHING;
 
 -- ============================================================================
 -- タスク・部品関連（使用部品）
@@ -96,7 +134,8 @@ INSERT INTO task_parts (id, tenant_id, task_id, part_id, quantity) VALUES
     ('20000001-0001-0001-0001-000000000001', '11111111-1111-1111-1111-111111111111', '10000001-0001-0001-0001-000000000001', 'cccc0001-0001-0001-0001-000000000001', 1),
     -- 「Emergency: Line A motor failure」で使用する部品
     ('20000001-0001-0001-0001-000000000002', '11111111-1111-1111-1111-111111111111', '10000001-0001-0001-0001-000000000004', 'cccc0001-0001-0001-0001-000000000002', 1),
-    ('20000001-0001-0001-0001-000000000003', '11111111-1111-1111-1111-111111111111', '10000001-0001-0001-0001-000000000004', 'cccc0001-0001-0001-0001-000000000003', 2);
+    ('20000001-0001-0001-0001-000000000003', '11111111-1111-1111-1111-111111111111', '10000001-0001-0001-0001-000000000004', 'cccc0001-0001-0001-0001-000000000003', 2)
+ON CONFLICT (id) DO NOTHING;
 
 -- ============================================================================
 -- カスタムフィールド値（EAVパターンの値部分）
@@ -109,20 +148,28 @@ INSERT INTO custom_field_values (id, tenant_id, task_id, field_definition_id, va
     ('30000001-0001-0001-0001-000000000004', '11111111-1111-1111-1111-111111111111', '10000001-0001-0001-0001-000000000004', 'ffff0001-0001-0001-0001-000000000004', 'true'),
 
     -- 「Replace worn conveyor belt」のカスタムフィールド値
-    ('30000001-0001-0001-0001-000000000005', '11111111-1111-1111-1111-111111111111', '10000001-0001-0001-0001-000000000001', 'ffff0001-0001-0001-0001-000000000001', 'Scheduled maintenance');
+    ('30000001-0001-0001-0001-000000000005', '11111111-1111-1111-1111-111111111111', '10000001-0001-0001-0001-000000000001', 'ffff0001-0001-0001-0001-000000000001', 'Scheduled maintenance')
+ON CONFLICT (id) DO NOTHING;
 
 -- ============================================================================
--- タスクコメント【課題2】
+-- タスクコメント【課題2】（動的日時使用）
 -- ============================================================================
+-- コメントは「現在から見て最近の作業履歴」として表示されるよう相対日時を使用
 INSERT INTO task_comments (id, tenant_id, task_id, commented_by, comment, created_at) VALUES
     -- 「Emergency: Line A motor failure」のコメント（時系列で作業履歴を記録）
-    ('40000001-0001-0001-0001-000000000001', '11111111-1111-1111-1111-111111111111', '10000001-0001-0001-0001-000000000004', 'Suzuki T.', 'Discovered motor failure at 08:15. Line stopped immediately. Notified maintenance team.', '2024-02-08 08:20:00+09'),
-    ('40000001-0001-0001-0001-000000000002', '11111111-1111-1111-1111-111111111111', '10000001-0001-0001-0001-000000000004', 'Tanaka K.', 'Inspected motor. Bearing completely seized. Need replacement motor from warehouse.', '2024-02-08 09:00:00+09'),
-    ('40000001-0001-0001-0001-000000000003', '11111111-1111-1111-1111-111111111111', '10000001-0001-0001-0001-000000000004', 'Tanaka K.', 'Replacement motor installed. Performing alignment check now.', '2024-02-08 10:30:00+09'),
-    ('40000001-0001-0001-0001-000000000004', '11111111-1111-1111-1111-111111111111', '10000001-0001-0001-0001-000000000004', 'Yamada H.', 'Night shift note: Line running stable after repair. Recommend monitoring vibration levels for next 24hrs.', '2024-02-08 22:00:00+09'),
+    -- 障害発生: 6時間前
+    ('40000001-0001-0001-0001-000000000001', '11111111-1111-1111-1111-111111111111', '10000001-0001-0001-0001-000000000004', 'Suzuki T.', 'Discovered motor failure at 08:15. Line stopped immediately. Notified maintenance team.', CURRENT_TIMESTAMP - INTERVAL '6 hours'),
+    -- 調査完了: 5時間前
+    ('40000001-0001-0001-0001-000000000002', '11111111-1111-1111-1111-111111111111', '10000001-0001-0001-0001-000000000004', 'Tanaka K.', 'Inspected motor. Bearing completely seized. Need replacement motor from warehouse.', CURRENT_TIMESTAMP - INTERVAL '5 hours'),
+    -- 修理完了: 3.5時間前
+    ('40000001-0001-0001-0001-000000000003', '11111111-1111-1111-1111-111111111111', '10000001-0001-0001-0001-000000000004', 'Tanaka K.', 'Replacement motor installed. Performing alignment check now.', CURRENT_TIMESTAMP - INTERVAL '3 hours 30 minutes'),
+    -- 経過観察: 30分前
+    ('40000001-0001-0001-0001-000000000004', '11111111-1111-1111-1111-111111111111', '10000001-0001-0001-0001-000000000004', 'Yamada H.', 'Line running stable after repair. Recommend monitoring vibration levels for next 24hrs.', CURRENT_TIMESTAMP - INTERVAL '30 minutes'),
 
-    -- 「Replace worn conveyor belt」のコメント
-    ('40000001-0001-0001-0001-000000000005', '11111111-1111-1111-1111-111111111111', '10000001-0001-0001-0001-000000000001', 'Suzuki T.', 'Ordered replacement belt. ETA: Feb 14th.', '2024-02-07 14:00:00+09');
+    -- 「Replace worn conveyor belt」のコメント: 1日前
+    ('40000001-0001-0001-0001-000000000005', '11111111-1111-1111-1111-111111111111', '10000001-0001-0001-0001-000000000001', 'Suzuki T.', 'Ordered replacement belt. ETA: 3 business days.', CURRENT_TIMESTAMP - INTERVAL '1 day')
+ON CONFLICT (id) DO NOTHING;
+
 -- ============================================================================
 -- M2X: グローバル基準リファクタリング用追加シードデータ
 -- ============================================================================
@@ -153,29 +200,34 @@ WHERE id = '22222222-2222-2222-2222-222222222222';
 -- ============================================================================
 -- ユーザー
 -- ============================================================================
+-- ※ 全ユーザー共通のテスト用ログインパスワードは `password123` です
+-- bcrypt hash (cost=12): $2b$12$qMeVXGKmkpB3eUZkqH2n4OohpXgqK6JvIiZNL5IvNa/b/OEI1fprG
+
 -- Tanaka Manufacturing のユーザー
 INSERT INTO users (id, tenant_id, email, password_hash, display_name, employee_id, department, role, status) VALUES
-    ('a0000001-0001-0001-0001-000000000001', '11111111-1111-1111-1111-111111111111', 'admin@tanaka-mfg.example.com', '$2b$12$EXAMPLE_HASH_ADMIN', 'System Admin', 'EMP-001', 'IT', 'admin', 'active'),
-    ('a0000001-0001-0001-0001-000000000002', '11111111-1111-1111-1111-111111111111', 'tanaka.k@tanaka-mfg.example.com', '$2b$12$EXAMPLE_HASH_001', 'Tanaka Kenji', 'EMP-101', 'Maintenance', 'operator', 'active'),
-    ('a0000001-0001-0001-0001-000000000003', '11111111-1111-1111-1111-111111111111', 'suzuki.t@tanaka-mfg.example.com', '$2b$12$EXAMPLE_HASH_002', 'Suzuki Taro', 'EMP-102', 'Production', 'operator', 'active'),
-    ('a0000001-0001-0001-0001-000000000004', '11111111-1111-1111-1111-111111111111', 'yamada.h@tanaka-mfg.example.com', '$2b$12$EXAMPLE_HASH_003', 'Yamada Hanako', 'EMP-103', 'Production', 'operator', 'active'),
-    ('a0000001-0001-0001-0001-000000000005', '11111111-1111-1111-1111-111111111111', 'sato.k@tanaka-mfg.example.com', '$2b$12$EXAMPLE_HASH_004', 'Sato Koji', 'EMP-104', 'Quality', 'operator', 'active'),
-    ('a0000001-0001-0001-0001-000000000006', '11111111-1111-1111-1111-111111111111', 'manager@tanaka-mfg.example.com', '$2b$12$EXAMPLE_HASH_MGR', 'Factory Manager', 'EMP-200', 'Management', 'manager', 'active');
+    ('a0000001-0001-0001-0001-000000000001', '11111111-1111-1111-1111-111111111111', 'admin@tanaka-mfg.example.com', '$2b$12$qMeVXGKmkpB3eUZkqH2n4OohpXgqK6JvIiZNL5IvNa/b/OEI1fprG', 'System Admin', 'EMP-001', 'IT', 'admin', 'active'),
+    ('a0000001-0001-0001-0001-000000000002', '11111111-1111-1111-1111-111111111111', 'tanaka.k@tanaka-mfg.example.com', '$2b$12$qMeVXGKmkpB3eUZkqH2n4OohpXgqK6JvIiZNL5IvNa/b/OEI1fprG', 'Tanaka Kenji', 'EMP-101', 'Maintenance', 'operator', 'active'),
+    ('a0000001-0001-0001-0001-000000000003', '11111111-1111-1111-1111-111111111111', 'suzuki.t@tanaka-mfg.example.com', '$2b$12$qMeVXGKmkpB3eUZkqH2n4OohpXgqK6JvIiZNL5IvNa/b/OEI1fprG', 'Suzuki Taro', 'EMP-102', 'Production', 'operator', 'active'),
+    ('a0000001-0001-0001-0001-000000000004', '11111111-1111-1111-1111-111111111111', 'yamada.h@tanaka-mfg.example.com', '$2b$12$qMeVXGKmkpB3eUZkqH2n4OohpXgqK6JvIiZNL5IvNa/b/OEI1fprG', 'Yamada Hanako', 'EMP-103', 'Production', 'operator', 'active'),
+    ('a0000001-0001-0001-0001-000000000005', '11111111-1111-1111-1111-111111111111', 'sato.k@tanaka-mfg.example.com', '$2b$12$qMeVXGKmkpB3eUZkqH2n4OohpXgqK6JvIiZNL5IvNa/b/OEI1fprG', 'Sato Koji', 'EMP-104', 'Quality', 'operator', 'active'),
+    ('a0000001-0001-0001-0001-000000000006', '11111111-1111-1111-1111-111111111111', 'manager@tanaka-mfg.example.com', '$2b$12$qMeVXGKmkpB3eUZkqH2n4OohpXgqK6JvIiZNL5IvNa/b/OEI1fprG', 'Factory Manager', 'EMP-200', 'Management', 'manager', 'active')
+ON CONFLICT (id) DO NOTHING;
 
 -- Yamamoto Electronics のユーザー
 INSERT INTO users (id, tenant_id, email, password_hash, display_name, employee_id, department, role, status) VALUES
-    ('a0000002-0001-0001-0001-000000000001', '22222222-2222-2222-2222-222222222222', 'admin@yamamoto-elec.example.com', '$2b$12$EXAMPLE_HASH_ADM2', 'Admin', 'YE-001', 'IT', 'admin', 'active'),
-    ('a0000002-0001-0001-0001-000000000002', '22222222-2222-2222-2222-222222222222', 'john.smith@yamamoto-elec.example.com', '$2b$12$EXAMPLE_HASH_JS', 'John Smith', 'YE-101', 'SMT Line', 'operator', 'active');
+    ('a0000002-0001-0001-0001-000000000001', '22222222-2222-2222-2222-222222222222', 'admin@yamamoto-elec.example.com', '$2b$12$qMeVXGKmkpB3eUZkqH2n4OohpXgqK6JvIiZNL5IvNa/b/OEI1fprG', 'Admin', 'YE-001', 'IT', 'admin', 'active'),
+    ('a0000002-0001-0001-0001-000000000002', '22222222-2222-2222-2222-222222222222', 'john.smith@yamamoto-elec.example.com', '$2b$12$qMeVXGKmkpB3eUZkqH2n4OohpXgqK6JvIiZNL5IvNa/b/OEI1fprG', 'John Smith', 'YE-101', 'SMT Line', 'operator', 'active')
+ON CONFLICT (id) DO NOTHING;
 
 -- ============================================================================
--- 設備拡張データ
+-- 設備拡張データ（動的日時使用）
 -- ============================================================================
 UPDATE equipments SET
     serial_number = 'AL-A-2024-001',
     model = 'ASL-5000',
-    installation_date = '2020-03-15',
-    last_maintenance_date = '2024-01-15',
-    next_maintenance_date = '2024-04-15',
+    installation_date = CURRENT_DATE - INTERVAL '4 years',
+    last_maintenance_date = CURRENT_DATE - INTERVAL '30 days',
+    next_maintenance_date = CURRENT_DATE + INTERVAL '60 days',
     status = 'operational',
     metadata = '{"location": "Building 1, Floor 1", "warranty_expires": "2025-03-15"}'
 WHERE id = 'aaaa0001-0001-0001-0001-000000000001';
@@ -183,18 +235,18 @@ WHERE id = 'aaaa0001-0001-0001-0001-000000000001';
 UPDATE equipments SET
     serial_number = 'CB-A1-2020-001',
     model = 'CT-3000',
-    installation_date = '2020-03-15',
-    last_maintenance_date = '2024-02-01',
-    next_maintenance_date = '2024-05-01',
+    installation_date = CURRENT_DATE - INTERVAL '4 years',
+    last_maintenance_date = CURRENT_DATE - INTERVAL '14 days',
+    next_maintenance_date = CURRENT_DATE + INTERVAL '76 days',
     status = 'operational'
 WHERE id = 'aaaa0001-0001-0001-0001-000000000011';
 
 UPDATE equipments SET
     serial_number = 'RA-A1-2021-001',
     model = 'ROBO-ARM-X7',
-    installation_date = '2021-06-20',
-    last_maintenance_date = '2024-02-08',
-    next_maintenance_date = '2024-03-08',
+    installation_date = CURRENT_DATE - INTERVAL '2 years 8 months',
+    last_maintenance_date = CURRENT_DATE - INTERVAL '7 days',
+    next_maintenance_date = CURRENT_DATE + INTERVAL '21 days',
     status = 'operational'
 WHERE id = 'aaaa0001-0001-0001-0001-000000000012';
 
@@ -229,7 +281,7 @@ UPDATE parts SET
 WHERE id = 'cccc0001-0001-0001-0001-000000000003';
 
 -- ============================================================================
--- タスク拡張データ
+-- タスク拡張データ（動的日時使用）
 -- ============================================================================
 UPDATE tasks SET
     priority = 'medium',
@@ -243,7 +295,7 @@ UPDATE tasks SET
     priority = 'high',
     category = 'calibration',
     estimated_hours = 1.5,
-    started_at = '2024-02-09 09:00:00+09',
+    started_at = CURRENT_TIMESTAMP - INTERVAL '4 hours',
     created_by = 'a0000001-0001-0001-0001-000000000006',
     assigned_to_user_id = 'a0000001-0001-0001-0001-000000000004'
 WHERE id = '10000001-0001-0001-0001-000000000002';
@@ -253,8 +305,8 @@ UPDATE tasks SET
     category = 'improvement',
     estimated_hours = 0.5,
     actual_hours = 0.75,
-    started_at = '2024-01-31 14:00:00+09',
-    completed_at = '2024-02-01 10:00:00+09',
+    started_at = CURRENT_TIMESTAMP - INTERVAL '10 days',
+    completed_at = CURRENT_TIMESTAMP - INTERVAL '7 days',
     created_by = 'a0000001-0001-0001-0001-000000000005',
     assigned_to_user_id = 'a0000001-0001-0001-0001-000000000005'
 WHERE id = '10000001-0001-0001-0001-000000000003';
@@ -264,7 +316,7 @@ UPDATE tasks SET
     category = 'emergency',
     estimated_hours = 4.0,
     actual_hours = 3.0,
-    started_at = '2024-02-08 08:30:00+09',
+    started_at = CURRENT_TIMESTAMP - INTERVAL '6 hours',
     created_by = 'a0000001-0001-0001-0001-000000000003',
     assigned_to_user_id = 'a0000001-0001-0001-0001-000000000002'
 WHERE id = '10000001-0001-0001-0001-000000000004';
@@ -306,14 +358,15 @@ UPDATE custom_field_definitions SET
 WHERE id = 'ffff0001-0001-0001-0001-000000000003';
 
 -- ============================================================================
--- 追加のサンプルタスク（優先度・カテゴリーのバリエーション）
+-- 追加のサンプルタスク（優先度・カテゴリーのバリエーション）（動的日時使用）
 -- ============================================================================
 INSERT INTO tasks (id, tenant_id, equipment_id, title, description, status, priority, category, due_date, assigned_to, estimated_hours, created_by, assigned_to_user_id) VALUES
     -- 様々な優先度のタスク
-    ('10000001-0001-0001-0001-000000000005', '11111111-1111-1111-1111-111111111111', 'aaaa0001-0001-0001-0001-000000000003', 'Monthly inspection - Packaging Line', 'Routine monthly inspection of packaging equipment', 'todo', 'medium', 'inspection', '2024-02-20', 'Yamada H.', 2.0, 'a0000001-0001-0001-0001-000000000006', 'a0000001-0001-0001-0001-000000000004'),
-    ('10000001-0001-0001-0001-000000000006', '11111111-1111-1111-1111-111111111111', 'aaaa0001-0001-0001-0001-000000000001', 'Annual calibration - Line A sensors', 'Calibrate all sensors on Assembly Line A', 'todo', 'high', 'calibration', '2024-02-28', 'Sato K.', 4.0, 'a0000001-0001-0001-0001-000000000006', 'a0000001-0001-0001-0001-000000000005'),
-    ('10000001-0001-0001-0001-000000000007', '11111111-1111-1111-1111-111111111111', 'aaaa0001-0001-0001-0001-000000000011', 'Deep cleaning - Conveyor Belt A-1', 'Quarterly deep cleaning of conveyor belt', 'todo', 'low', 'cleaning', '2024-03-01', 'Suzuki T.', 3.0, 'a0000001-0001-0001-0001-000000000006', 'a0000001-0001-0001-0001-000000000003'),
-    ('10000001-0001-0001-0001-000000000008', '11111111-1111-1111-1111-111111111111', 'aaaa0001-0001-0001-0001-000000000012', 'Gripper replacement - Robot Arm A-1', 'Replace worn gripper unit', 'in_progress', 'high', 'replacement', '2024-02-12', 'Tanaka K.', 1.5, 'a0000001-0001-0001-0001-000000000002', 'a0000001-0001-0001-0001-000000000002');
+    ('10000001-0001-0001-0001-000000000005', '11111111-1111-1111-1111-111111111111', 'aaaa0001-0001-0001-0001-000000000003', 'Monthly inspection - Packaging Line', 'Routine monthly inspection of packaging equipment', 'todo', 'medium', 'inspection', CURRENT_DATE + INTERVAL '12 days', 'Yamada H.', 2.0, 'a0000001-0001-0001-0001-000000000006', 'a0000001-0001-0001-0001-000000000004'),
+    ('10000001-0001-0001-0001-000000000006', '11111111-1111-1111-1111-111111111111', 'aaaa0001-0001-0001-0001-000000000001', 'Annual calibration - Line A sensors', 'Calibrate all sensors on Assembly Line A', 'todo', 'high', 'calibration', CURRENT_DATE + INTERVAL '20 days', 'Sato K.', 4.0, 'a0000001-0001-0001-0001-000000000006', 'a0000001-0001-0001-0001-000000000005'),
+    ('10000001-0001-0001-0001-000000000007', '11111111-1111-1111-1111-111111111111', 'aaaa0001-0001-0001-0001-000000000011', 'Deep cleaning - Conveyor Belt A-1', 'Quarterly deep cleaning of conveyor belt', 'todo', 'low', 'cleaning', CURRENT_DATE + INTERVAL '21 days', 'Suzuki T.', 3.0, 'a0000001-0001-0001-0001-000000000006', 'a0000001-0001-0001-0001-000000000003'),
+    ('10000001-0001-0001-0001-000000000008', '11111111-1111-1111-1111-111111111111', 'aaaa0001-0001-0001-0001-000000000012', 'Gripper replacement - Robot Arm A-1', 'Replace worn gripper unit', 'in_progress', 'high', 'replacement', CURRENT_DATE + INTERVAL '4 days', 'Tanaka K.', 1.5, 'a0000001-0001-0001-0001-000000000002', 'a0000001-0001-0001-0001-000000000002')
+ON CONFLICT (id) DO NOTHING;
 
 -- ============================================================================
 -- 業種別サンプルデータ
@@ -328,7 +381,8 @@ INSERT INTO equipment_categories (id, tenant_id, code, name, description, indust
     -- 水道施設
     ('cc000001-0001-0001-0001-000000000004', '22222222-2222-2222-2222-222222222222', 'PUMP', 'ポンプ設備', '送水・配水ポンプ', ARRAY['water'], 1),
     ('cc000001-0001-0001-0001-000000000005', '22222222-2222-2222-2222-222222222222', 'TREATMENT', '浄水処理', '浄水処理設備', ARRAY['water'], 2),
-    ('cc000001-0001-0001-0001-000000000006', '22222222-2222-2222-2222-222222222222', 'MONITORING', '監視計装', '水質・流量監視', ARRAY['water'], 3);
+    ('cc000001-0001-0001-0001-000000000006', '22222222-2222-2222-2222-222222222222', 'MONITORING', '監視計装', '水質・流量監視', ARRAY['water'], 3)
+ON CONFLICT (id) DO NOTHING;
 
 -- 設備タイプ
 INSERT INTO equipment_types (id, tenant_id, category_id, code, name, standard_inspection_items, regulatory_requirements) VALUES
@@ -345,7 +399,8 @@ INSERT INTO equipment_types (id, tenant_id, category_id, code, name, standard_in
      '[{"regulation": "水道法", "inspection": "定期点検", "frequency_months": 6}]'),
     ('e0000001-0001-0001-0001-000000000004', '22222222-2222-2222-2222-222222222222', 'cc000001-0001-0001-0001-000000000005', 'CHLORINATOR', '塩素注入装置',
      '[{"item": "注入量確認", "frequency": "hourly"}, {"item": "配管漏れ確認", "frequency": "daily"}]',
-     '[{"regulation": "水道法", "inspection": "毎日点検", "frequency_months": 0}]');
+     '[{"regulation": "水道法", "inspection": "毎日点検", "frequency_months": 0}]')
+ON CONFLICT (id) DO NOTHING;
 
 -- シフトマスタ
 INSERT INTO shifts (id, tenant_id, shift_code, shift_name, start_time, end_time, crosses_midnight) VALUES
@@ -353,13 +408,15 @@ INSERT INTO shifts (id, tenant_id, shift_code, shift_name, start_time, end_time,
     ('50000001-0001-0001-0001-000000000002', '11111111-1111-1111-1111-111111111111', 'SWING', '準夜勤', '16:00', '00:00', FALSE),
     ('50000001-0001-0001-0001-000000000003', '11111111-1111-1111-1111-111111111111', 'NIGHT', '夜勤', '00:00', '08:00', FALSE),
     ('50000001-0001-0001-0001-000000000004', '22222222-2222-2222-2222-222222222222', 'DAY', '日勤', '08:30', '17:30', FALSE),
-    ('50000001-0001-0001-0001-000000000005', '22222222-2222-2222-2222-222222222222', 'NIGHT', '夜勤', '17:00', '09:00', TRUE);
+    ('50000001-0001-0001-0001-000000000005', '22222222-2222-2222-2222-222222222222', 'NIGHT', '夜勤', '17:00', '09:00', TRUE)
+ON CONFLICT (id) DO NOTHING;
 
 -- 点検テンプレート
 INSERT INTO inspection_templates (id, tenant_id, template_code, template_name, equipment_type_id, frequency, is_regulatory, industry_tags) VALUES
     ('11000001-0001-0001-0001-000000000001', '11111111-1111-1111-1111-111111111111', 'ROBOT-DAILY', '産業用ロボット日常点検', 'e0000001-0001-0001-0001-000000000002', 'daily', FALSE, ARRAY['manufacturing']),
     ('11000001-0001-0001-0001-000000000002', '22222222-2222-2222-2222-222222222222', 'PUMP-DAILY', 'ポンプ日常点検', 'e0000001-0001-0001-0001-000000000003', 'daily', TRUE, ARRAY['water']),
-    ('11000001-0001-0001-0001-000000000003', '22222222-2222-2222-2222-222222222222', 'WATER-QUALITY', '水質検査', NULL, 'hourly', TRUE, ARRAY['water']);
+    ('11000001-0001-0001-0001-000000000003', '22222222-2222-2222-2222-222222222222', 'WATER-QUALITY', '水質検査', NULL, 'hourly', TRUE, ARRAY['water'])
+ON CONFLICT (id) DO NOTHING;
 
 -- 点検テンプレート項目
 INSERT INTO inspection_template_items (id, template_id, item_order, item_code, item_name, item_type, input_type, is_safety_critical) VALUES
@@ -370,7 +427,8 @@ INSERT INTO inspection_template_items (id, template_id, item_order, item_code, i
     -- ポンプ日常点検
     ('12000001-0001-0001-0001-000000000004', '11000001-0001-0001-0001-000000000002', 1, 'P-001', '軸受温度', 'measurement', 'number', FALSE),
     ('12000001-0001-0001-0001-000000000005', '11000001-0001-0001-0001-000000000002', 2, 'P-002', '振動値', 'measurement', 'number', FALSE),
-    ('12000001-0001-0001-0001-000000000006', '11000001-0001-0001-0001-000000000002', 3, 'P-003', '漏水確認', 'visual', 'checkbox', TRUE);
+    ('12000001-0001-0001-0001-000000000006', '11000001-0001-0001-0001-000000000002', 3, 'P-003', '漏水確認', 'visual', 'checkbox', TRUE)
+ON CONFLICT (id) DO NOTHING;
 
 -- 点検項目の追加属性
 UPDATE inspection_template_items SET
@@ -405,6 +463,10 @@ BEGIN
     RAISE NOTICE '  - 設備タイプ: 4件';
     RAISE NOTICE '  - シフト: 5件';
     RAISE NOTICE '  - 点検テンプレート: 3件';
+    RAISE NOTICE '';
+    RAISE NOTICE '【テストログイン】';
+    RAISE NOTICE '  パスワード: password123';
+    RAISE NOTICE '  メール例: admin@tanaka-mfg.example.com';
     RAISE NOTICE '============================================================';
 END;
 $$;
