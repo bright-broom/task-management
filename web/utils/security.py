@@ -31,6 +31,7 @@ from typing import Any, Callable, TypeVar
 import jwt
 from flask import Flask, Response, g, jsonify, request
 
+
 def _get_jwt_secret() -> str:
     """Get JWT secret key from environment.
 
@@ -49,11 +50,12 @@ def _get_jwt_secret() -> str:
     if is_production:
         raise RuntimeError(
             "CRITICAL: JWT_SECRET_KEY environment variable must be set in production. "
-            "Generate with: python -c \"import secrets; print(secrets.token_hex(32))\""
+            'Generate with: python -c "import secrets; print(secrets.token_hex(32))"'
         )
 
     if not is_testing:
         import warnings
+
         warnings.warn(
             "JWT_SECRET_KEY not set - using random key. "
             "This will break token verification across restarts/processes.",

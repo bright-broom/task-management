@@ -155,9 +155,7 @@ def get_task(tenant_id: str, task_id: str) -> tuple[Response, int]:
 @tasks_bp.route("/api/tenants/<tenant_id>/tasks/<task_id>/details")
 @tasks_bp.route("/api/tasks/<task_id>/details")  # Legacy route (deprecated)
 @validate_uuid("task_id")
-def get_task_details(
-    task_id: str, tenant_id: str | None = None
-) -> Response | tuple[Response, int]:
+def get_task_details(task_id: str, tenant_id: str | None = None) -> Response | tuple[Response, int]:
     """Get task with custom fields, parts, and comments.
 
     Security Note: The legacy route /api/tasks/<task_id>/details is deprecated.
