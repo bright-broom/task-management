@@ -48,7 +48,8 @@
       "Bash(do echo \"=== $table ===\")",
       "Bash(done)",
       "Bash(gh run rerun:*)",
-      "Bash(du:*)"
+      "Bash(du:*)",
+      "Bash(find:*)"
     ]
   }
 }

@@ -97,7 +97,6 @@ class PaginationParams:
 
         allowed = allowed_sort_columns or cls.VALID_SORT_COLUMNS
         sort_by_raw = request.args.get("sort_by", default_sort)
-        # Validate sort_by against whitelist to prevent SQL injection
         sort_by = sort_by_raw if sort_by_raw in allowed else default_sort
 
         sort_order = request.args.get("sort_order", default_order)
@@ -119,7 +118,6 @@ class PaginationParams:
         if not self.sort_by:
             return ""
 
-        # Map to actual SQL column if mapping provided
         sql_column = self.sort_by
         if column_mapping and self.sort_by in column_mapping:
             sql_column = column_mapping[self.sort_by]
