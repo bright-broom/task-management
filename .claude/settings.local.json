@@ -46,7 +46,9 @@
       "Bash(git restore:*)",
       "Bash(for table in \"user_sessions\" \"security_events\" \"password_policies\" \"password_history\" \"rate_limit_configs\" \"ip_blocklist\" \"failed_login_attempts\")",
       "Bash(do echo \"=== $table ===\")",
-      "Bash(done)"
+      "Bash(done)",
+      "Bash(gh run rerun:*)",
+      "Bash(du:*)"
     ]
   }
 }

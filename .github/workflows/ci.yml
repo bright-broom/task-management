@@ -50,8 +50,6 @@ jobs:
         run: |
           psql -f db/migrations/001_schema.sql
           psql -f db/migrations/002_seed_data.sql
-          psql -f db/migrations/003_enterprise_advanced.sql
-          psql -f db/migrations/004_enterprise_ultimate.sql
 
       - name: Run tests with coverage
         env:

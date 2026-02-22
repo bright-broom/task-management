@@ -12,8 +12,6 @@ services:
       # マイグレーション（番号順に自動実行）
       - ./db/migrations/001_schema.sql:/docker-entrypoint-initdb.d/001_schema.sql:ro
       - ./db/migrations/002_seed_data.sql:/docker-entrypoint-initdb.d/002_seed_data.sql:ro
-      - ./db/migrations/003_enterprise_advanced.sql:/docker-entrypoint-initdb.d/003_enterprise_advanced.sql:ro
-      - ./db/migrations/004_enterprise_ultimate.sql:/docker-entrypoint-initdb.d/004_enterprise_ultimate.sql:ro
       # サンプルクエリ（手動実行用）
       - ./db/queries/sample_queries.sql:/docker-entrypoint-initdb.d/sample_queries.sql:ro
       # データ永続化

@@ -2089,18 +2089,112 @@ ORDER BY blocked_at DESC;
 COMMENT ON VIEW v_active_blocks IS '現在アクティブなIPブロック';
 
 -- ============================================================================
+-- Row-Level Security（テナント分離）
+-- ============================================================================
+-- マルチテナントアーキテクチャのセキュリティ基盤
+-- 各テナントは自分のデータのみアクセス可能
+
+ALTER TABLE tasks ENABLE ROW LEVEL SECURITY;
+ALTER TABLE equipments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE parts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE users ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY tenant_isolation_tasks ON tasks
+    USING (tenant_id = current_setting('app.current_tenant_id', true)::UUID);
+
+CREATE POLICY tenant_isolation_equipments ON equipments
+    USING (tenant_id = current_setting('app.current_tenant_id', true)::UUID);
+
+CREATE POLICY tenant_isolation_parts ON parts
+    USING (tenant_id = current_setting('app.current_tenant_id', true)::UUID);
+
+CREATE POLICY tenant_isolation_users ON users
+    USING (tenant_id = current_setting('app.current_tenant_id', true)::UUID);
+
+-- ============================================================================
+-- 全文検索・あいまい検索
+-- ============================================================================
+-- PostgreSQL pg_trgm拡張による高速な全文検索とあいまい検索
+
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+
+-- タスク全文検索インデックス
+CREATE INDEX idx_tasks_fulltext ON tasks
+    USING GIN (to_tsvector('english', coalesce(title, '') || ' ' || coalesce(description, '')));
+
+-- 設備全文検索インデックス
+CREATE INDEX idx_equipments_fulltext ON equipments
+    USING GIN (to_tsvector('english', coalesce(name, '') || ' ' || coalesce(description, '')));
+
+-- 部品全文検索インデックス
+CREATE INDEX idx_parts_fulltext ON parts
+    USING GIN (to_tsvector('english', coalesce(name, '') || ' ' || coalesce(description, '')));
+
+-- トライグラムインデックス（あいまい検索用）
+CREATE INDEX idx_tasks_title_trgm ON tasks USING GIN (title gin_trgm_ops);
+CREATE INDEX idx_equipments_name_trgm ON equipments USING GIN (name gin_trgm_ops);
+CREATE INDEX idx_parts_name_trgm ON parts USING GIN (name gin_trgm_ops);
+
+-- 全文検索関数
+CREATE OR REPLACE FUNCTION search_tasks(
+    p_tenant_id UUID,
+    p_query TEXT,
+    p_limit INTEGER DEFAULT 20
+)
+RETURNS TABLE (
+    task_id UUID,
+    title VARCHAR,
+    description TEXT,
+    relevance REAL
+) AS $$
+BEGIN
+    RETURN QUERY
+    SELECT
+        t.id,
+        t.title,
+        t.description,
+        ts_rank(
+            to_tsvector('english', coalesce(t.title, '') || ' ' || coalesce(t.description, '')),
+            plainto_tsquery('english', p_query)
+        ) as relevance
+    FROM tasks t
+    WHERE t.tenant_id = p_tenant_id
+      AND t.deleted_at IS NULL
+      AND to_tsvector('english', coalesce(t.title, '') || ' ' || coalesce(t.description, ''))
+          @@ plainto_tsquery('english', p_query)
+    ORDER BY relevance DESC
+    LIMIT p_limit;
+END;
+$$ LANGUAGE plpgsql;
+
+COMMENT ON FUNCTION search_tasks IS '全文検索: タスク検索';
+
+-- ============================================================================
 -- 完了メッセージ
 -- ============================================================================
 
 DO $$
 BEGIN
-    RAISE NOTICE 'セキュリティ強化マイグレーション完了';
-    RAISE NOTICE '- セキュリティイベントログ: 作成済';
-    RAISE NOTICE '- APIキー管理: 作成済';
-    RAISE NOTICE '- セッション管理: 作成済';
-    RAISE NOTICE '- 失敗ログイン追跡: 作成済';
-    RAISE NOTICE '- IPブロックリスト: 作成済';
-    RAISE NOTICE '- パスワードポリシー: 作成済';
-    RAISE NOTICE '- セキュリティヘルパー関数: 作成済';
+    RAISE NOTICE '============================================================';
+    RAISE NOTICE 'M2X Task Management スキーママイグレーション完了';
+    RAISE NOTICE '============================================================';
+    RAISE NOTICE '';
+    RAISE NOTICE '【コア機能】';
+    RAISE NOTICE '  - テナント・設備・部品・タスク管理';
+    RAISE NOTICE '  - カスタムフィールド（EAVパターン）';
+    RAISE NOTICE '  - タスクコメント・優先度・カテゴリ';
+    RAISE NOTICE '';
+    RAISE NOTICE '【セキュリティ】';
+    RAISE NOTICE '  - JWT認証・RBAC権限制御';
+    RAISE NOTICE '  - セキュリティイベントログ';
+    RAISE NOTICE '  - APIキー管理・セッション管理';
+    RAISE NOTICE '  - IPブロックリスト・レート制限';
+    RAISE NOTICE '  - Row-Level Security（テナント分離）';
+    RAISE NOTICE '';
+    RAISE NOTICE '【高度な機能】';
+    RAISE NOTICE '  - 全文検索（pg_trgm）';
+    RAISE NOTICE '  - 監査ログトリガー';
+    RAISE NOTICE '  - 楽観的ロック（version管理）';
+    RAISE NOTICE '============================================================';
 END;
 $$;
