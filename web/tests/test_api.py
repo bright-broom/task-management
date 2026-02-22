@@ -82,7 +82,6 @@ class TestEquipmentsAPI:
         data1 = json.loads(response1.data)
         data2 = json.loads(response2.data)
 
-        # Equipment IDs should be different between tenants
         ids1 = {e["id"] for e in data1["items"]}
         ids2 = {e["id"] for e in data2["items"]}
 
@@ -130,7 +129,6 @@ class TestPartsAPI:
         response = client.get(f"/api/tenants/{TEST_TENANT_ID}/parts")
         data = json.loads(response.data)
 
-        # Find a part that has related equipment
         parts_with_equipment = [p for p in data["items"] if p.get("related_equipments")]
         assert len(parts_with_equipment) > 0, "Some parts should have related equipment"
 
@@ -299,11 +297,8 @@ class TestCustomFieldsAPI:
         data1 = json.loads(response1.data)
         data2 = json.loads(response2.data)
 
-        # Field names should be different between tenants
         names1 = {f["field_name"] for f in data1}
         names2 = {f["field_name"] for f in data2}
-
-        # At least some fields should be different
         assert names1 != names2 or (len(names1) == 0 and len(names2) == 0)
 
 
@@ -346,7 +341,6 @@ class TestStatsAPI:
             assert "name" in part
             assert "stock_quantity" in part
             assert "reorder_point" in part
-            # Stock should be at or below reorder point
             assert part["stock_quantity"] <= part["reorder_point"]
 
 
