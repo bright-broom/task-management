@@ -118,7 +118,6 @@ def hash_password(password: str) -> str:
         bcrypt_salt = bcrypt.gensalt(rounds=BCRYPT_ROUNDS)
         return bcrypt.hashpw(password.encode("utf-8"), bcrypt_salt).decode("utf-8")
     else:
-        # PBKDF2フォールバック
         import hashlib
 
         pbkdf2_salt = secrets.token_hex(16)
@@ -131,7 +130,6 @@ def hash_password(password: str) -> str:
 def verify_password(password: str, password_hash: str) -> bool:
     """Verify password against stored hash."""
     if password_hash.startswith("pbkdf2:"):
-        # PBKDFフォールバック形式
         parts = password_hash.split("$")
         if len(parts) != 3:
             return False
@@ -153,7 +151,6 @@ def check_password_strength(password: str) -> dict[str, Any]:
     errors: list[str] = []
     score = 0
 
-    # 長さチェック
     if len(password) < 12:
         errors.append("Password must be at least 12 characters")
     else:
@@ -161,31 +158,26 @@ def check_password_strength(password: str) -> dict[str, Any]:
         if len(password) >= 16:
             score += 1
 
-    # 大文字
     if not re.search(r"[A-Z]", password):
         errors.append("Password must contain at least one uppercase letter")
     else:
         score += 1
 
-    # 小文字
     if not re.search(r"[a-z]", password):
         errors.append("Password must contain at least one lowercase letter")
     else:
         score += 1
 
-    # 数字
     if not re.search(r"\d", password):
         errors.append("Password must contain at least one number")
     else:
         score += 1
 
-    # 特殊文字
     if not re.search(r"[!@#$%^&*()_+\-=\[\]{}|;:,.<>?]", password):
         errors.append("Password must contain at least one special character")
     else:
         score += 1
 
-    # 一般的なパスワードチェック（簡易版）
     common_passwords = {
         "password",
         "123456",
@@ -284,7 +276,6 @@ def require_auth(f: F) -> F:
         if payload.get("type") != "access":
             return jsonify({"error": "Invalid token type"}), 401
 
-        # ユーザー情報をgオブジェクトに設定
         g.current_user = {
             "user_id": payload.get("sub"),
             "tenant_id": payload.get("tenant_id"),
@@ -643,7 +634,6 @@ class SecurityEventLogger:
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
 
-        # ログレベルに応じて出力
         log_func = getattr(logger, severity, logger.info)
         log_func(f"SECURITY_EVENT: {event_type} | {log_entry}")
 

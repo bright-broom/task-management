@@ -80,8 +80,7 @@ CREATE INDEX idx_equipments_parent ON equipments(tenant_id, parent_equipment_id)
 CREATE INDEX idx_equipments_name ON equipments(tenant_id, name);
 
 COMMENT ON TABLE equipments IS '設備マスタ。親子階層構造に対応（自己参照）';
-COMMENT ON COLUMN equipments.parent_equipment_id IS '親設備ID。NULLの場合はトップレベル設備';
-COMMENT ON COLUMN equipments.manufacturer IS '製造元';
+COMMENT ON COLUMN equipments.parent_equipment_id IS 'NULLの場合はトップレベル設備';
 
 -- ============================================================================
 -- parts: 部品マスタ（在庫・発注点管理）
@@ -108,9 +107,6 @@ CREATE INDEX idx_parts_tenant ON parts(tenant_id);
 CREATE UNIQUE INDEX idx_parts_number ON parts(tenant_id, part_number) WHERE part_number IS NOT NULL;
 
 COMMENT ON TABLE parts IS '部品マスタ。在庫数と発注点を管理';
-COMMENT ON COLUMN parts.location IS '保管場所';
-COMMENT ON COLUMN parts.description IS '説明';
-COMMENT ON COLUMN parts.stock_quantity IS '現在の在庫数';
 COMMENT ON COLUMN parts.reorder_point IS '発注点（この数量を下回ったら発注が必要）';
 
 -- ============================================================================
@@ -159,10 +155,8 @@ CREATE INDEX idx_tasks_equipment ON tasks(tenant_id, equipment_id) WHERE equipme
 CREATE INDEX idx_tasks_status ON tasks(tenant_id, status);
 CREATE INDEX idx_tasks_due_date ON tasks(tenant_id, due_date);
 
-COMMENT ON TABLE tasks IS 'タスク管理テーブル。設備への紐づけは任意';
-COMMENT ON COLUMN tasks.equipment_id IS '設備ID（任意）。NULLの場合は設備に紐づかないタスク';
-COMMENT ON COLUMN tasks.status IS 'タスクステータス: todo（未着手）, in_progress（進行中）, done（完了）';
-COMMENT ON COLUMN tasks.assigned_to IS '担当者名';
+COMMENT ON TABLE tasks IS 'タスク管理テーブル';
+COMMENT ON COLUMN tasks.equipment_id IS 'NULLの場合は設備に紐づかないタスク';
 
 -- ============================================================================
 -- task_parts: タスク・部品関連（使用数量付き）
@@ -186,8 +180,7 @@ CREATE INDEX idx_task_parts_tenant ON task_parts(tenant_id);
 CREATE INDEX idx_task_parts_task ON task_parts(task_id);
 CREATE INDEX idx_task_parts_part ON task_parts(part_id);
 
-COMMENT ON TABLE task_parts IS 'タスクと部品の関連テーブル。使用数量を記録';
-COMMENT ON COLUMN task_parts.quantity IS '使用数量';
+COMMENT ON TABLE task_parts IS 'タスクと部品の関連テーブル';
 
 -- ============================================================================
 -- custom_field_definitions: テナント独自カスタムフィールド定義
@@ -222,11 +215,7 @@ CREATE TABLE custom_field_definitions (
 
 CREATE INDEX idx_custom_field_definitions_tenant ON custom_field_definitions(tenant_id);
 
-COMMENT ON TABLE custom_field_definitions IS 'テナント独自カスタムフィールド定義（EAVパターンのAttribute部分）';
-COMMENT ON COLUMN custom_field_definitions.field_name IS 'フィールド名（例: Cause of stoppage, Repair details）';
-COMMENT ON COLUMN custom_field_definitions.field_type IS 'データ型: text, number, date, boolean, select';
-COMMENT ON COLUMN custom_field_definitions.is_required IS '必須フラグ';
-COMMENT ON COLUMN custom_field_definitions.display_order IS '画面表示順';
+COMMENT ON TABLE custom_field_definitions IS 'テナント独自カスタムフィールド定義（EAVパターン）';
 COMMENT ON COLUMN custom_field_definitions.options IS 'select型の場合の選択肢（JSON配列）';
 
 -- ============================================================================
@@ -258,8 +247,7 @@ CREATE INDEX idx_custom_field_values_tenant ON custom_field_values(tenant_id);
 CREATE INDEX idx_custom_field_values_task ON custom_field_values(task_id);
 CREATE INDEX idx_custom_field_values_definition ON custom_field_values(field_definition_id);
 
-COMMENT ON TABLE custom_field_values IS 'カスタムフィールドの値（EAVパターンのValue部分）';
-COMMENT ON COLUMN custom_field_values.value IS 'フィールドの値（TEXT型で統一、型変換はアプリケーション層）';
+COMMENT ON TABLE custom_field_values IS 'カスタムフィールドの値（EAVパターン）';
 
 -- ============================================================================
 -- task_comments: タスクコメント【課題2: 追加機能】
@@ -710,9 +698,6 @@ ALTER TABLE tenants
 CREATE UNIQUE INDEX IF NOT EXISTS idx_tenants_slug ON tenants(slug) WHERE slug IS NOT NULL;
 
 COMMENT ON COLUMN tenants.slug IS 'URLフレンドリーな識別子';
-COMMENT ON COLUMN tenants.timezone IS 'テナントのタイムゾーン';
-COMMENT ON COLUMN tenants.locale IS 'テナントのロケール';
-COMMENT ON COLUMN tenants.settings IS 'テナント固有設定（JSON）';
 
 -- -----------------------------------------------------------------------------
 -- 5.2 equipmentsテーブル拡張
@@ -734,11 +719,6 @@ CREATE INDEX IF NOT EXISTS idx_equipments_status ON equipments(tenant_id, status
 CREATE INDEX IF NOT EXISTS idx_equipments_maintenance ON equipments(tenant_id, next_maintenance_date) WHERE deleted_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_equipments_active ON equipments(tenant_id) WHERE deleted_at IS NULL;
 
-COMMENT ON COLUMN equipments.serial_number IS 'シリアル番号';
-COMMENT ON COLUMN equipments.model IS '型番';
-COMMENT ON COLUMN equipments.installation_date IS '設置日';
-COMMENT ON COLUMN equipments.next_maintenance_date IS '次回メンテナンス予定日';
-COMMENT ON COLUMN equipments.metadata IS '追加メタデータ（JSON）';
 
 -- -----------------------------------------------------------------------------
 -- 5.3 partsテーブル拡張
@@ -761,9 +741,6 @@ CREATE INDEX IF NOT EXISTS idx_parts_low_stock ON parts(tenant_id)
     WHERE deleted_at IS NULL AND stock_quantity <= reorder_point;
 CREATE INDEX IF NOT EXISTS idx_parts_active ON parts(tenant_id) WHERE deleted_at IS NULL;
 
-COMMENT ON COLUMN parts.unit_price IS '単価';
-COMMENT ON COLUMN parts.lead_time_days IS 'リードタイム（日）';
-COMMENT ON COLUMN parts.barcode IS 'バーコード';
 
 -- -----------------------------------------------------------------------------
 -- 5.4 tasksテーブル拡張
@@ -799,12 +776,6 @@ CREATE INDEX IF NOT EXISTS idx_tasks_dashboard ON tasks(tenant_id, status, prior
 CREATE INDEX IF NOT EXISTS idx_tasks_assigned_to ON tasks(tenant_id, assigned_to)
     WHERE deleted_at IS NULL AND assigned_to IS NOT NULL;
 
-COMMENT ON COLUMN tasks.priority IS 'タスク優先度';
-COMMENT ON COLUMN tasks.category IS 'タスクカテゴリー';
-COMMENT ON COLUMN tasks.estimated_hours IS '見積工数（時間）';
-COMMENT ON COLUMN tasks.actual_hours IS '実績工数（時間）';
-COMMENT ON COLUMN tasks.started_at IS '作業開始日時';
-COMMENT ON COLUMN tasks.completed_at IS '作業完了日時';
 
 -- FK制約（ユーザー参照）
 -- 注意: usersテーブルより後に定義されるため、006マイグレーションで追加

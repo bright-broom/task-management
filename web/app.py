@@ -133,7 +133,6 @@ def get_tenants() -> Response:
     """
     with get_db_connection() as conn:
         with get_db_cursor(conn) as cur:
-            # Filter out soft-deleted tenants
             cur.execute("SELECT * FROM tenants WHERE deleted_at IS NULL ORDER BY name")
             tenants = cur.fetchall()
     return jsonify(tenants)
@@ -152,7 +151,6 @@ def get_equipments(tenant_id: str) -> Response:
 
     with get_db_connection() as conn:
         with tenant_context(conn, tenant_id) as cur:
-            # Filter out soft-deleted equipments
             cur.execute(
                 """SELECT COUNT(*) as count FROM equipments
                    WHERE tenant_id = %s AND deleted_at IS NULL""",
@@ -200,7 +198,6 @@ def get_parts(tenant_id: str) -> Response:
 
     with get_db_connection() as conn:
         with tenant_context(conn, tenant_id) as cur:
-            # Filter out soft-deleted parts
             conditions = ["p.tenant_id = %s", "p.deleted_at IS NULL"]
             params: list[Any] = [tenant_id]
 
