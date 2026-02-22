@@ -16,7 +16,6 @@ from dataclasses import dataclass
 from functools import wraps
 from typing import Any, Callable, TypeVar
 
-from core.exceptions import OptimisticLockError
 from flask import jsonify, request
 
 F = TypeVar("F", bound=Callable[..., Any])
@@ -32,9 +31,7 @@ __all__ = [
     "validate_uuid",
     "validate_required_fields",
     "sanitize_string",
-    "OptimisticLockError",
     "validate_version",
-    "build_optimistic_update",
     "get_request_user_context",
     "build_pagination_response",
 ]
@@ -237,17 +234,6 @@ def validate_version(data: dict[str, Any], field: str = "version") -> int | None
         return v
     except (TypeError, ValueError) as e:
         raise ValueError(f"Invalid version format: {e}") from e
-
-
-def build_optimistic_update(
-    updates: list[str],
-    params: list[Any],
-    current_version: int | None,
-) -> tuple[list[str], list[Any]]:
-    """Add version increment for optimistic locking."""
-    if current_version is not None:
-        updates.append("version = version + 1")
-    return updates, params
 
 
 def get_request_user_context() -> tuple[str | None, str | None]:

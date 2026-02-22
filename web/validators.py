@@ -7,9 +7,7 @@ New code should import from utils.validators directly.
 from utils.validators import (
     DEFAULT_PAGE_SIZE,
     MAX_PAGE_SIZE,
-    OptimisticLockError,
     PaginationParams,
-    build_optimistic_update,
     build_pagination_response,
     get_request_user_context,
     is_valid_uuid,
@@ -27,9 +25,7 @@ __all__ = [
     "validate_uuid",
     "validate_required_fields",
     "sanitize_string",
-    "OptimisticLockError",
     "validate_version",
-    "build_optimistic_update",
     "get_request_user_context",
     "build_pagination_response",
 ]
