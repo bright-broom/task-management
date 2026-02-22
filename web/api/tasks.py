@@ -92,7 +92,6 @@ def get_tasks(tenant_id: str) -> Response:
 
     with get_db_connection() as conn:
         with tenant_context(conn, tenant_id) as cur:
-            # Always filter out soft-deleted tasks
             conditions = ["t.tenant_id = %s", "t.deleted_at IS NULL"]
             params: list[Any] = [tenant_id]
 

@@ -43,7 +43,10 @@
       "Bash(docker exec:*)",
       "Bash(docker logs:*)",
       "Bash(DATABASE_URL=\"postgresql://m2x_user:m2x_password@localhost:5432/m2x_task_management\" python -m pytest:*)",
-      "Bash(git restore:*)"
+      "Bash(git restore:*)",
+      "Bash(for table in \"user_sessions\" \"security_events\" \"password_policies\" \"password_history\" \"rate_limit_configs\" \"ip_blocklist\" \"failed_login_attempts\")",
+      "Bash(do echo \"=== $table ===\")",
+      "Bash(done)"
     ]
   }
 }
