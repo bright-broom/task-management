@@ -585,3 +585,334 @@ FROM password_policies pp
 JOIN tenants t ON pp.tenant_id = t.id
 WHERE t.deleted_at IS NULL
 ORDER BY t.name;
+
+-- ============================================================================
+-- ============================================================================
+-- SECTION 3: 業種横断クエリ（水道・製造・食品・化学プラント対応）
+-- ============================================================================
+-- ============================================================================
+
+-- ============================================================================
+-- 26. 設備カテゴリ・タイプ階層表示
+-- ============================================================================
+\echo '=== 設備カテゴリ・タイプ一覧 ==='
+
+SELECT
+    ec.code AS category_code,
+    ec.name AS category_name,
+    et.code AS type_code,
+    et.name AS type_name,
+    array_to_string(ec.industry_tags, ', ') AS industries
+FROM equipment_categories ec
+LEFT JOIN equipment_types et ON ec.id = et.category_id
+WHERE ec.tenant_id = :tenant_id
+ORDER BY ec.sort_order, ec.name, et.name;
+
+-- ============================================================================
+-- 27. 計測ポイント一覧（センサー監視用）
+-- ============================================================================
+\echo '=== 計測ポイント一覧 ==='
+
+SELECT
+    e.name AS equipment_name,
+    mp.point_code,
+    mp.point_name,
+    mp.data_type,
+    mp.unit,
+    mp.normal_min || ' - ' || mp.normal_max AS normal_range,
+    mp.warning_min || ' - ' || mp.warning_max AS warning_range,
+    array_to_string(mp.tags, ', ') AS tags
+FROM measurement_points mp
+JOIN equipments e ON mp.equipment_id = e.id
+WHERE mp.tenant_id = :tenant_id
+  AND mp.is_active = TRUE
+ORDER BY e.name, mp.point_code;
+
+-- ============================================================================
+-- 28. 計測データサマリー（日次統計）
+-- ============================================================================
+\echo '=== 計測データ日次統計 ==='
+
+SELECT
+    mp.point_name,
+    mp.unit,
+    DATE(md.measured_at) AS date,
+    ROUND(AVG(md.numeric_value)::NUMERIC, 2) AS avg_value,
+    ROUND(MIN(md.numeric_value)::NUMERIC, 2) AS min_value,
+    ROUND(MAX(md.numeric_value)::NUMERIC, 2) AS max_value,
+    COUNT(*) AS sample_count,
+    COUNT(*) FILTER (WHERE md.is_anomaly) AS anomaly_count
+FROM measurement_data md
+JOIN measurement_points mp ON md.point_id = mp.id
+WHERE md.tenant_id = :tenant_id
+  AND md.measured_at >= CURRENT_DATE - INTERVAL '7 days'
+GROUP BY mp.id, mp.point_name, mp.unit, DATE(md.measured_at)
+ORDER BY mp.point_name, date DESC;
+
+-- ============================================================================
+-- 29. 点検予定・実績管理
+-- ============================================================================
+\echo '=== 点検予定・実績 ==='
+
+SELECT
+    it.template_name,
+    it.frequency,
+    e.name AS equipment_name,
+    ir.record_number,
+    ir.status,
+    ir.overall_result,
+    TO_CHAR(ir.scheduled_date, 'YYYY-MM-DD') AS scheduled_date,
+    TO_CHAR(ir.completed_at, 'YYYY-MM-DD HH24:MI') AS completed_at,
+    ir.inspector_name,
+    CASE WHEN ir.has_issues THEN 'Yes (' || ir.issue_count || ')' ELSE 'No' END AS has_issues
+FROM inspection_records ir
+JOIN inspection_templates it ON ir.template_id = it.id
+JOIN equipments e ON ir.equipment_id = e.id
+WHERE ir.tenant_id = :tenant_id
+ORDER BY ir.scheduled_date DESC, ir.created_at DESC
+LIMIT 50;
+
+-- ============================================================================
+-- 30. 点検期限切れアラート
+-- ============================================================================
+\echo '=== 点検期限切れ・期限間近 ==='
+
+SELECT
+    e.name AS equipment_name,
+    it.template_name,
+    it.frequency,
+    MAX(ir.completed_at) AS last_inspection,
+    calculate_next_inspection_date(e.id, it.id) AS next_due,
+    CASE
+        WHEN calculate_next_inspection_date(e.id, it.id) < CURRENT_DATE THEN 'OVERDUE'
+        WHEN calculate_next_inspection_date(e.id, it.id) <= CURRENT_DATE + 7 THEN 'DUE SOON'
+        ELSE 'OK'
+    END AS status
+FROM equipments e
+CROSS JOIN inspection_templates it
+LEFT JOIN inspection_records ir ON e.id = ir.equipment_id AND it.id = ir.template_id
+WHERE e.tenant_id = :tenant_id
+  AND e.deleted_at IS NULL
+  AND it.is_active = TRUE
+  AND (it.equipment_type_id IS NULL OR it.equipment_type_id = e.type_id)
+GROUP BY e.id, e.name, it.id, it.template_name, it.frequency
+HAVING calculate_next_inspection_date(e.id, it.id) <= CURRENT_DATE + 14
+ORDER BY calculate_next_inspection_date(e.id, it.id);
+
+-- ============================================================================
+-- 31. 作業許可証（PTW）管理
+-- ============================================================================
+\echo '=== 作業許可証一覧 ==='
+
+SELECT
+    wp.permit_number,
+    wp.permit_type,
+    wp.work_title,
+    wp.work_location,
+    wp.status,
+    TO_CHAR(wp.planned_start, 'YYYY-MM-DD HH24:MI') AS planned_start,
+    TO_CHAR(wp.planned_end, 'YYYY-MM-DD HH24:MI') AS planned_end,
+    u.display_name AS requester,
+    wp.work_supervisor_name AS supervisor,
+    array_to_string(wp.ppe_required, ', ') AS ppe_required
+FROM work_permits wp
+JOIN users u ON wp.requester_id = u.id
+WHERE wp.tenant_id = :tenant_id
+ORDER BY
+    CASE wp.status
+        WHEN 'active' THEN 1
+        WHEN 'approved' THEN 2
+        WHEN 'pending_approval' THEN 3
+        ELSE 4
+    END,
+    wp.planned_start;
+
+-- ============================================================================
+-- 32. インシデント分析
+-- ============================================================================
+\echo '=== インシデント分析（過去90日） ==='
+
+SELECT
+    i.incident_type,
+    i.severity,
+    COUNT(*) AS incident_count,
+    COUNT(*) FILTER (WHERE i.status = 'closed') AS closed_count,
+    COUNT(*) FILTER (WHERE i.status IN ('reported', 'investigating')) AS open_count,
+    ROUND(
+        AVG(EXTRACT(EPOCH FROM (i.closed_at - i.occurred_at)) / 86400)::NUMERIC, 1
+    ) AS avg_resolution_days
+FROM incidents i
+WHERE i.tenant_id = :tenant_id
+  AND i.occurred_at >= CURRENT_DATE - INTERVAL '90 days'
+GROUP BY i.incident_type, i.severity
+ORDER BY
+    CASE i.severity
+        WHEN 'catastrophic' THEN 1
+        WHEN 'critical' THEN 2
+        WHEN 'serious' THEN 3
+        WHEN 'moderate' THEN 4
+        WHEN 'minor' THEN 5
+    END,
+    incident_count DESC;
+
+-- ============================================================================
+-- 33. シフト別作業員配置
+-- ============================================================================
+\echo '=== 本日のシフト配置 ==='
+
+SELECT
+    s.shift_name,
+    s.start_time || ' - ' || s.end_time AS time_range,
+    u.display_name AS worker,
+    sa.role,
+    sa.assigned_area,
+    e.name AS assigned_equipment
+FROM shift_assignments sa
+JOIN shifts s ON sa.shift_id = s.id
+JOIN users u ON sa.user_id = u.id
+LEFT JOIN equipments e ON sa.assigned_equipment_id = e.id
+WHERE sa.tenant_id = :tenant_id
+  AND sa.assignment_date = CURRENT_DATE
+ORDER BY s.start_time, u.display_name;
+
+-- ============================================================================
+-- 34. 設備総合ダッシュボード
+-- ============================================================================
+\echo '=== 設備総合ダッシュボード ==='
+
+SELECT
+    e.name AS equipment_name,
+    ec.name AS category,
+    e.criticality,
+    -- 最新点検
+    (SELECT TO_CHAR(MAX(ir.completed_at), 'YYYY-MM-DD')
+     FROM inspection_records ir
+     WHERE ir.equipment_id = e.id AND ir.status = 'approved') AS last_inspection,
+    -- オープンタスク
+    (SELECT COUNT(*)
+     FROM tasks t
+     WHERE t.equipment_id = e.id AND t.status != 'done' AND t.deleted_at IS NULL) AS open_tasks,
+    -- 30日インシデント
+    (SELECT COUNT(*)
+     FROM incidents i
+     WHERE i.equipment_id = e.id AND i.occurred_at > CURRENT_TIMESTAMP - INTERVAL '30 days') AS incidents_30d,
+    -- アクティブPTW
+    (SELECT COUNT(*)
+     FROM work_permits wp
+     WHERE wp.equipment_id = e.id AND wp.status IN ('approved', 'active')) AS active_permits,
+    -- 異常計測数
+    (SELECT COUNT(*)
+     FROM measurement_data md
+     JOIN measurement_points mp ON md.point_id = mp.id
+     WHERE mp.equipment_id = e.id
+       AND md.is_anomaly = TRUE
+       AND md.measured_at > CURRENT_TIMESTAMP - INTERVAL '24 hours') AS anomalies_24h
+FROM equipments e
+LEFT JOIN equipment_categories ec ON e.category_id = ec.id
+WHERE e.tenant_id = :tenant_id
+  AND e.deleted_at IS NULL
+ORDER BY
+    CASE e.criticality
+        WHEN 'critical' THEN 1
+        WHEN 'high' THEN 2
+        WHEN 'medium' THEN 3
+        WHEN 'low' THEN 4
+    END,
+    e.name;
+
+-- ============================================================================
+-- 35. 水道施設向け: 水質モニタリング
+-- ============================================================================
+\echo '=== 水質モニタリング（水道施設向け） ==='
+
+SELECT
+    e.name AS facility_name,
+    mp.point_name AS parameter,
+    mp.unit,
+    md.numeric_value AS current_value,
+    mp.normal_min || ' - ' || mp.normal_max AS normal_range,
+    CASE
+        WHEN md.numeric_value < mp.critical_min OR md.numeric_value > mp.critical_max THEN 'CRITICAL'
+        WHEN md.numeric_value < mp.warning_min OR md.numeric_value > mp.warning_max THEN 'WARNING'
+        WHEN md.numeric_value < mp.normal_min OR md.numeric_value > mp.normal_max THEN 'ALERT'
+        ELSE 'NORMAL'
+    END AS status,
+    TO_CHAR(md.measured_at, 'HH24:MI') AS time
+FROM measurement_points mp
+JOIN equipments e ON mp.equipment_id = e.id
+JOIN LATERAL (
+    SELECT * FROM measurement_data
+    WHERE point_id = mp.id
+    ORDER BY measured_at DESC
+    LIMIT 1
+) md ON TRUE
+WHERE mp.tenant_id = :tenant_id
+  AND 'water_quality' = ANY(mp.tags)
+ORDER BY
+    CASE
+        WHEN md.numeric_value < mp.critical_min OR md.numeric_value > mp.critical_max THEN 1
+        WHEN md.numeric_value < mp.warning_min OR md.numeric_value > mp.warning_max THEN 2
+        ELSE 3
+    END,
+    e.name, mp.point_name;
+
+-- ============================================================================
+-- 36. 食品工場向け: HACCP温度記録
+-- ============================================================================
+\echo '=== HACCP温度記録（食品工場向け） ==='
+
+SELECT
+    e.name AS equipment_name,
+    mp.point_name,
+    DATE(md.measured_at) AS date,
+    COUNT(*) AS readings,
+    ROUND(MIN(md.numeric_value)::NUMERIC, 1) AS min_temp,
+    ROUND(MAX(md.numeric_value)::NUMERIC, 1) AS max_temp,
+    ROUND(AVG(md.numeric_value)::NUMERIC, 1) AS avg_temp,
+    mp.critical_min || '℃ - ' || mp.critical_max || '℃' AS acceptable_range,
+    CASE
+        WHEN MIN(md.numeric_value) < mp.critical_min OR MAX(md.numeric_value) > mp.critical_max
+        THEN 'DEVIATION'
+        ELSE 'COMPLIANT'
+    END AS haccp_status
+FROM measurement_points mp
+JOIN equipments e ON mp.equipment_id = e.id
+JOIN measurement_data md ON mp.id = md.point_id
+WHERE mp.tenant_id = :tenant_id
+  AND 'haccp_ccp' = ANY(mp.tags)
+  AND md.measured_at >= CURRENT_DATE - INTERVAL '7 days'
+GROUP BY e.id, e.name, mp.id, mp.point_name, mp.critical_min, mp.critical_max, DATE(md.measured_at)
+ORDER BY date DESC, e.name;
+
+-- ============================================================================
+-- 37. 化学プラント向け: 安全弁点検状況
+-- ============================================================================
+\echo '=== 安全設備点検状況（化学プラント向け） ==='
+
+SELECT
+    e.name AS equipment_name,
+    et.name AS equipment_type,
+    it.template_name AS inspection_type,
+    MAX(ir.completed_at) AS last_inspection,
+    calculate_next_inspection_date(e.id, it.id) AS next_due,
+    CASE
+        WHEN calculate_next_inspection_date(e.id, it.id) < CURRENT_DATE THEN 'OVERDUE - CRITICAL'
+        WHEN calculate_next_inspection_date(e.id, it.id) <= CURRENT_DATE + 30 THEN 'DUE SOON'
+        ELSE 'OK'
+    END AS status,
+    COALESCE(
+        (SELECT COUNT(*) FROM inspection_record_items iri
+         JOIN inspection_records ir2 ON iri.record_id = ir2.id
+         WHERE ir2.equipment_id = e.id AND iri.is_issue = TRUE
+         AND ir2.completed_at > CURRENT_DATE - INTERVAL '365 days'), 0
+    ) AS issues_last_year
+FROM equipments e
+JOIN equipment_types et ON e.type_id = et.id
+JOIN equipment_categories ec ON e.category_id = ec.id
+CROSS JOIN inspection_templates it
+LEFT JOIN inspection_records ir ON e.id = ir.equipment_id AND it.id = ir.template_id
+WHERE e.tenant_id = :tenant_id
+  AND 'chemical' = ANY(ec.industry_tags)
+  AND it.is_regulatory = TRUE
+GROUP BY e.id, e.name, et.name, it.id, it.template_name
+ORDER BY calculate_next_inspection_date(e.id, it.id);
