@@ -65,19 +65,22 @@ WHERE t.tenant_id = :tenant_id
 ORDER BY t.created_at DESC, cfd.display_order;
 
 -- ============================================================================
--- 4. タスクとカスタムフィールドをピボット形式で取得
+-- 4. タスクとカスタムフィールドを動的JSONB形式で取得
 -- ============================================================================
 -- NOTE: LEFT JOINで設備なしタスクも表示
-\echo '=== タスク一覧（カスタムフィールドをピボット表示） ==='
+-- 【最適化】jsonb_object_agg()を使用し、テナント固有のカスタムフィールドを動的に集約
+-- ハードコードされたMAX(CASE WHEN ...)方式より柔軟でスケーラブル
+\echo '=== タスク一覧（カスタムフィールドをJSONB集約） ==='
 
 SELECT
     t.title,
     t.status,
     COALESCE(e.name, '(設備なし)') AS equipment_name,
-    MAX(CASE WHEN cfd.field_name = 'Cause of stoppage' THEN cfv.value END) AS cause_of_stoppage,
-    MAX(CASE WHEN cfd.field_name = 'Repair details' THEN cfv.value END) AS repair_details,
-    MAX(CASE WHEN cfd.field_name = 'Downtime (minutes)' THEN cfv.value END) AS downtime_minutes,
-    MAX(CASE WHEN cfd.field_name = 'Requires follow-up' THEN cfv.value END) AS requires_followup
+    COALESCE(
+        jsonb_object_agg(cfd.field_name, cfv.value)
+            FILTER (WHERE cfd.field_name IS NOT NULL),
+        '{}'::jsonb
+    ) AS custom_fields
 FROM tasks t
 LEFT JOIN equipments e ON t.equipment_id = e.id
 LEFT JOIN custom_field_values cfv ON t.id = cfv.task_id
@@ -89,6 +92,13 @@ ORDER BY t.created_at DESC;
 -- ============================================================================
 -- 5. 設備階層構造の表示（親子関係）
 -- ============================================================================
+-- 【運用・設計NOTE】
+-- 現在のWITH RECURSIVE方式は、数千件規模の設備データでは十分なパフォーマンスを発揮する。
+-- 将来的に数万件規模の複雑な階層検索（特定親の全子孫取得、深い階層のトラバーサル等）で
+-- パフォーマンスが課題になった場合は、PostgreSQL公式拡張の `ltree` モジュールの導入を推奨。
+-- ltreeは階層パス（例: 'plant.line1.machine.sensor'）をネイティブ型で扱い、
+-- GiSTインデックスによる高速な祖先/子孫クエリを提供する。
+-- 参考: https://www.postgresql.org/docs/current/ltree.html
 \echo '=== 設備階層構造 ==='
 
 WITH RECURSIVE equipment_tree AS (
@@ -194,11 +204,23 @@ ORDER BY task_count DESC;
 -- 10. ダウンタイム合計（数値型カスタムフィールドの集計）
 -- ============================================================================
 -- NOTE: LEFT JOINで設備なしタスクも集計（equipment_name = '(設備なし)'）
+-- 【堅牢化】EAVモデルの型キャストを安全に実施
+-- - NULLIF(cfv.value, '')で空文字をNULLに変換
+-- - 正規表現 ~ '^[0-9]+$' で数値形式のみを対象にキャスト
+-- - 非数値が混入してもクエリがクラッシュしない
 \echo '=== 設備別ダウンタイム合計 ==='
 
 SELECT
     COALESCE(e.name, '(設備なし)') AS equipment_name,
-    COALESCE(SUM(cfv.value::INTEGER), 0) AS total_downtime_minutes
+    COALESCE(
+        SUM(
+            CASE
+                WHEN cfv.value ~ '^[0-9]+$' THEN NULLIF(cfv.value, '')::INTEGER
+                ELSE NULL
+            END
+        ),
+        0
+    ) AS total_downtime_minutes
 FROM tasks t
 LEFT JOIN equipments e ON t.equipment_id = e.id
 LEFT JOIN custom_field_definitions cfd ON cfd.tenant_id = t.tenant_id
@@ -528,6 +550,13 @@ ORDER BY task_count DESC;
 -- ============================================================================
 -- 24. 設備階層と関連タスク（深度付き）
 -- ============================================================================
+-- 【運用・設計NOTE】
+-- 現在のWITH RECURSIVE方式は、数千件規模の設備データでは十分なパフォーマンスを発揮する。
+-- 将来的に数万件規模の複雑な階層検索（特定親の全子孫取得、深い階層のトラバーサル等）で
+-- パフォーマンスが課題になった場合は、PostgreSQL公式拡張の `ltree` モジュールの導入を推奨。
+-- ltreeは階層パス（例: 'plant.line1.machine.sensor'）をネイティブ型で扱い、
+-- GiSTインデックスによる高速な祖先/子孫クエリを提供する。
+-- 参考: https://www.postgresql.org/docs/current/ltree.html
 \echo '=== 設備階層とタスクサマリー ==='
 
 WITH RECURSIVE equipment_hierarchy AS (
@@ -778,37 +807,76 @@ ORDER BY s.start_time, u.display_name;
 -- ============================================================================
 -- 34. 設備総合ダッシュボード
 -- ============================================================================
+-- 【パフォーマンス最適化】
+-- Query 23のアプローチに倣い、相関サブクエリをCTEで事前集計しLEFT JOINに変換。
+-- N+1問題を解消し、設備レコード数増加時のボトルネックを回避。
 \echo '=== 設備総合ダッシュボード ==='
 
+WITH
+-- CTE 1: 最新点検日（設備別）
+last_inspections AS (
+    SELECT
+        ir.equipment_id,
+        TO_CHAR(MAX(ir.completed_at), 'YYYY-MM-DD') AS last_inspection
+    FROM inspection_records ir
+    WHERE ir.status = 'approved'
+    GROUP BY ir.equipment_id
+),
+-- CTE 2: オープンタスク数（設備別）
+open_task_counts AS (
+    SELECT
+        t.equipment_id,
+        COUNT(*) AS open_tasks
+    FROM tasks t
+    WHERE t.status != 'done'
+      AND t.deleted_at IS NULL
+    GROUP BY t.equipment_id
+),
+-- CTE 3: 30日間インシデント数（設備別）
+incident_counts AS (
+    SELECT
+        i.equipment_id,
+        COUNT(*) AS incidents_30d
+    FROM incidents i
+    WHERE i.occurred_at > CURRENT_TIMESTAMP - INTERVAL '30 days'
+    GROUP BY i.equipment_id
+),
+-- CTE 4: アクティブ作業許可証数（設備別）
+active_permit_counts AS (
+    SELECT
+        wp.equipment_id,
+        COUNT(*) AS active_permits
+    FROM work_permits wp
+    WHERE wp.status IN ('approved', 'active')
+    GROUP BY wp.equipment_id
+),
+-- CTE 5: 24時間異常計測数（設備別）
+anomaly_counts AS (
+    SELECT
+        mp.equipment_id,
+        COUNT(*) AS anomalies_24h
+    FROM measurement_data md
+    JOIN measurement_points mp ON md.point_id = mp.id
+    WHERE md.is_anomaly = TRUE
+      AND md.measured_at > CURRENT_TIMESTAMP - INTERVAL '24 hours'
+    GROUP BY mp.equipment_id
+)
 SELECT
     e.name AS equipment_name,
     ec.name AS category,
     e.criticality,
-    -- 最新点検
-    (SELECT TO_CHAR(MAX(ir.completed_at), 'YYYY-MM-DD')
-     FROM inspection_records ir
-     WHERE ir.equipment_id = e.id AND ir.status = 'approved') AS last_inspection,
-    -- オープンタスク
-    (SELECT COUNT(*)
-     FROM tasks t
-     WHERE t.equipment_id = e.id AND t.status != 'done' AND t.deleted_at IS NULL) AS open_tasks,
-    -- 30日インシデント
-    (SELECT COUNT(*)
-     FROM incidents i
-     WHERE i.equipment_id = e.id AND i.occurred_at > CURRENT_TIMESTAMP - INTERVAL '30 days') AS incidents_30d,
-    -- アクティブPTW
-    (SELECT COUNT(*)
-     FROM work_permits wp
-     WHERE wp.equipment_id = e.id AND wp.status IN ('approved', 'active')) AS active_permits,
-    -- 異常計測数
-    (SELECT COUNT(*)
-     FROM measurement_data md
-     JOIN measurement_points mp ON md.point_id = mp.id
-     WHERE mp.equipment_id = e.id
-       AND md.is_anomaly = TRUE
-       AND md.measured_at > CURRENT_TIMESTAMP - INTERVAL '24 hours') AS anomalies_24h
+    COALESCE(li.last_inspection, '-') AS last_inspection,
+    COALESCE(otc.open_tasks, 0) AS open_tasks,
+    COALESCE(ic.incidents_30d, 0) AS incidents_30d,
+    COALESCE(apc.active_permits, 0) AS active_permits,
+    COALESCE(ac.anomalies_24h, 0) AS anomalies_24h
 FROM equipments e
 LEFT JOIN equipment_categories ec ON e.category_id = ec.id
+LEFT JOIN last_inspections li ON e.id = li.equipment_id
+LEFT JOIN open_task_counts otc ON e.id = otc.equipment_id
+LEFT JOIN incident_counts ic ON e.id = ic.equipment_id
+LEFT JOIN active_permit_counts apc ON e.id = apc.equipment_id
+LEFT JOIN anomaly_counts ac ON e.id = ac.equipment_id
 WHERE e.tenant_id = :tenant_id
   AND e.deleted_at IS NULL
 ORDER BY
