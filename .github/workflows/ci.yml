@@ -49,8 +49,7 @@ jobs:
           PGDATABASE: m2x_task_management
         run: |
           psql -f db/migrations/001_schema.sql
-          psql -f db/migrations/002_industry.sql
-          psql -f db/migrations/003_seed_data.sql
+          psql -f db/migrations/002_seed_data.sql
 
       - name: Run tests with coverage
         env:
