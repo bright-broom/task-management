@@ -2,7 +2,7 @@
 -r requirements.txt
 
 # Testing
-pytest==8.0.0
+pytest==9.0.2
 pytest-cov==7.0.0
 
 # Code formatting
