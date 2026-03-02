@@ -18,5 +18,5 @@ safety==3.7.0
 
 # Type checking
 mypy==1.19.1
-types-psycopg2==2.9.21.20240201
+types-psycopg2==2.9.21.20260223
 types-Flask==1.1.6
