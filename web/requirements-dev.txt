@@ -3,7 +3,7 @@
 
 # Testing
 pytest==8.0.0
-pytest-cov==7.0.0
+pytest-cov==7.1.0
 
 # Code formatting
 black==24.1.0
@@ -13,10 +13,10 @@ isort==5.13.0
 flake8==7.3.0
 
 # Security
-bandit==1.9.3
+bandit==1.9.4
 safety==3.7.0
 
 # Type checking
-mypy==1.19.1
+mypy==1.20.2
 types-psycopg2==2.9.21.20240201
 types-Flask==1.1.6
